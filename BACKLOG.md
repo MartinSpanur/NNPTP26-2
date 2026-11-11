@@ -27,7 +27,7 @@ This is the single progress-tracking list for proposed fixes, refactoring, featu
 - [ ] **FEATURE-002 — Add the report export CLI command**: Support `report export <project-id> --format <markdown|json> [--output <file-path>]`.
 - [ ] **FEATURE-003 — Add task list sorting and date filters**: Support `--sort title|priority|duedate`, `--from <date>`, `--to <date>`, and `--overdue` in `task list`.
 - [ ] **FEATURE-004 — Highlight tasks over estimate**: Add a CLI view or `task list --exceeded` option for tasks whose recorded time exceeds their estimate.
-- [ ] **FEATURE-005 — Back up and restore a workspace**: Add commands to export a workspace as a compressed archive or import an external CSV bundle.
+- [X] **FEATURE-005 — Back up and restore a workspace**: Add commands to export a workspace as a compressed archive or import an external CSV bundle.
 
 ## Tests
 
