@@ -109,59 +109,14 @@ public class TaskService {
     public List<Task> findTasks(TaskQuery query) {
         Objects.requireNonNull(query, "Query must not be null");
         LocalDate today = LocalDate.now(clock);
+        TaskSpecification specification = TaskQueryEvaluator.toSpecification(query, today);
 
         List<Task> result = new ArrayList<>(taskRepository.findAll().stream()
-                .filter(task -> matchesQuery(task, query, today))
+                .filter(specification::isSatisfiedBy)
                 .toList());
 
         result.sort(buildComparator(query.sortOrder()));
         return result;
-    }
-
-    private boolean matchesQuery(Task task, TaskQuery query, LocalDate today) {
-        if (query.projectId() != null && !query.projectId().equals(task.getProjectId())) {
-            return false;
-        }
-        if (query.state() != null && query.state() != task.getState()) {
-            return false;
-        }
-        if (query.priority() != null && query.priority() != task.getPriority()) {
-            return false;
-        }
-        if (query.label() != null && !task.hasLabel(query.label())) {
-            return false;
-        }
-        if (query.textSearch() != null) {
-            String title = task.getTitle().toLowerCase(Locale.ROOT);
-            String desc = task.getDescription().toLowerCase(Locale.ROOT);
-            if (!title.contains(query.textSearch()) && !desc.contains(query.textSearch())) {
-                return false;
-            }
-        }
-        if (query.fromDueDate() != null || query.toDueDate() != null) {
-            if (task.getDueDate() == null) {
-                return false;
-            }
-            if (query.fromDueDate() != null && task.getDueDate().isBefore(query.fromDueDate())) {
-                return false;
-            }
-            if (query.toDueDate() != null && task.getDueDate().isAfter(query.toDueDate())) {
-                return false;
-            }
-        }
-        if (query.overdue() != null) {
-            boolean isOverdue = task.isOverdue(today);
-            if (query.overdue() != isOverdue) {
-                return false;
-            }
-        }
-        if (query.varianceThresholdMinutes() != null) {
-            Long variance = task.getVarianceMinutes();
-            if (variance == null || variance <= query.varianceThresholdMinutes()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private Comparator<Task> buildComparator(TaskSortOrder sortOrder) {

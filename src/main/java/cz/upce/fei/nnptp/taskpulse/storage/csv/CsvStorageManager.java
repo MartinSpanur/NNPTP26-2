@@ -63,6 +63,17 @@ public class CsvStorageManager {
         }
     }
 
+    private static boolean isBlankLine(List<String> row) {
+        return row.isEmpty() || (row.size() == 1 && row.get(0).isBlank());
+    }
+
+    private static void rejectDelimiterOnlyRow(String file, int lineNumber, List<String> row) {
+        if (row.stream().allMatch(String::isBlank)) {
+            throw new StorageException("Empty record in " + file + " at line " + lineNumber
+                    + ": the row contains only delimiters and no values; remove the line or fill in its fields");
+        }
+    }
+
     public LoadedWorkspace load() {
         InMemoryProjectRepository projectRepo = new InMemoryProjectRepository();
         InMemoryTaskRepository taskRepo = new InMemoryTaskRepository();
@@ -98,7 +109,8 @@ public class CsvStorageManager {
             if (rows.isEmpty()) return;
             for (int i = 1; i < rows.size(); i++) {
                 List<String> row = rows.get(i);
-                if (row.isEmpty() || (row.size() == 1 && row.get(0).isBlank())) continue;
+                if (isBlankLine(row)) continue;
+                rejectDelimiterOnlyRow("projects.csv", i + 1, row);
                 if (row.size() < 3) {
                     throw new StorageException("Malformed row in projects.csv at line " + (i + 1));
                 }
@@ -121,7 +133,8 @@ public class CsvStorageManager {
             if (rows.isEmpty()) return;
             for (int i = 1; i < rows.size(); i++) {
                 List<String> row = rows.get(i);
-                if (row.isEmpty() || (row.size() == 1 && row.get(0).isBlank())) continue;
+                if (isBlankLine(row)) continue;
+                rejectDelimiterOnlyRow("tasks.csv", i + 1, row);
                 if (row.size() < 9) {
                     throw new StorageException("Malformed row in tasks.csv at line " + (i + 1));
                 }
@@ -173,7 +186,8 @@ public class CsvStorageManager {
             if (rows.isEmpty()) return;
             for (int i = 1; i < rows.size(); i++) {
                 List<String> row = rows.get(i);
-                if (row.isEmpty() || (row.size() == 1 && row.get(0).isBlank())) continue;
+                if (isBlankLine(row)) continue;
+                rejectDelimiterOnlyRow("worklogs.csv", i + 1, row);
                 if (row.size() < 5) {
                     throw new StorageException("Malformed row in worklogs.csv at line " + (i + 1));
                 }

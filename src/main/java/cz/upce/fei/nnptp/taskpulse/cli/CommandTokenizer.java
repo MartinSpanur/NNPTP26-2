@@ -16,6 +16,7 @@ public final class CommandTokenizer {
         StringBuilder current = new StringBuilder();
         boolean inQuotes = false;
         char quoteChar = ' ';
+        boolean tokenStarted = false;
 
         for (int i = 0; i < line.length(); i++) {
             char c = line.charAt(i);
@@ -55,18 +56,21 @@ public final class CommandTokenizer {
                 if (c == '"' || c == '\'') {
                     inQuotes = true;
                     quoteChar = c;
+                    tokenStarted = true;
                 } else if (Character.isWhitespace(c)) {
-                    if (current.length() > 0) {
+                    if (tokenStarted) {
                         tokens.add(current.toString());
                         current.setLength(0);
+                        tokenStarted = false;
                     }
                 } else {
                     current.append(c);
+                    tokenStarted = true;
                 }
             }
         }
 
-        if (current.length() > 0) {
+        if (tokenStarted) {
             tokens.add(current.toString());
         }
 

@@ -17,11 +17,15 @@ import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Scanner;
 
 public class TaskPulseApp {
     public static void main(String[] args) {
-        Path dataDir = Paths.get(".taskpulse");
+        run(args, Paths.get(".taskpulse"));
+    }
+
+    static void run(String[] args, Path dataDir) {
         CsvStorageManager storageManager = new CsvStorageManager(dataDir);
         CsvStorageManager.LoadedWorkspace workspace = storageManager.load();
 

@@ -8,6 +8,58 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CommandTokenizerTest {
 
     @Test
+    void preservesEmptyDoubleQuotedArgument() {
+        List<String> actual = CommandTokenizer.tokenize(
+                "project add \"\" \"Project description\"");
+
+        assertThat(actual).containsExactly("project", "add", "", "Project description");
+    }
+
+    @Test
+    void preservesEmptySingleQuotedArgument() {
+        List<String> actual = CommandTokenizer.tokenize(
+                "project add '' 'Project description'");
+
+        assertThat(actual).containsExactly("project", "add", "", "Project description");
+    }
+
+    @Test
+    void preservesEmptyArgumentAtStart() {
+        List<String> actual = CommandTokenizer.tokenize("\"\" next");
+
+        assertThat(actual).containsExactly("", "next");
+    }
+
+    @Test
+    void preservesEmptyArgumentAtEnd() {
+        List<String> actual = CommandTokenizer.tokenize("project add Name \"\"");
+
+        assertThat(actual).containsExactly("project", "add", "Name", "");
+    }
+
+    @Test
+    void preservesConsecutiveEmptyArguments() {
+        List<String> actual = CommandTokenizer.tokenize("\"\" '' \"\"");
+
+        assertThat(actual).containsExactly("", "", "");
+    }
+
+    @Test
+    void whitespaceDoesNotCreateExtraEmptyArguments() {
+        List<String> actual = CommandTokenizer.tokenize("  project\t add   \"\"   description  ");
+
+        assertThat(actual).containsExactly("project", "add", "", "description");
+        assertThat(CommandTokenizer.tokenize(" \t\n ")).isEmpty();
+    }
+
+    @Test
+    void adjacentQuotedPartsRemainOneArgument() {
+        List<String> actual = CommandTokenizer.tokenize("say pre\"\"fix \"\"''");
+
+        assertThat(actual).containsExactly("say", "prefix", "");
+    }
+
+    @Test
     void convertsNewlineEscape() {
         List<String> actual = CommandTokenizer.tokenize(
                 "say \"First\\nSecond\"");

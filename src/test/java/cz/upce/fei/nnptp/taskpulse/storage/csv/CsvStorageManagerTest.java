@@ -239,4 +239,84 @@ class CsvStorageManagerTest {
                 .hasMessageContaining("column 'priority'")
                 .hasMessageContaining("URGENT");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\n", "\n\n", "\n\n\n", "\r\n\r\n", "\r\r", "\n   \n", "\n\t\n"})
+    void ignoreTrailingEmptyLinesInAllCsvFiles(String trailingLines) throws IOException {
+        UUID projectId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        Files.writeString(tempDir.resolve("projects.csv"),
+                "id,name,description\n" + projectId + ",Project,Desc" + trailingLines);
+        Files.writeString(tempDir.resolve("tasks.csv"),
+                "id,projectId,title,description,priority,state,estimatedMinutes,dueDate,labels\n"
+                        + taskId + "," + projectId + ",Title,Desc,MEDIUM,IN_PROGRESS,,," + trailingLines);
+        Files.writeString(tempDir.resolve("worklogs.csv"),
+                "taskId,timestamp,durationMinutes,author,description\n"
+                        + taskId + ",2026-10-21T14:30,45,Author,Work" + trailingLines);
+
+        CsvStorageManager.LoadedWorkspace workspace = new CsvStorageManager(tempDir).load();
+
+        assertThat(workspace.projectRepository().findAll()).hasSize(1);
+        assertThat(workspace.taskRepository().findAll()).hasSize(1);
+        assertThat(workspace.taskRepository().findById(taskId).orElseThrow().getWorklogs()).hasSize(1);
+    }
+
+    @Test
+    void ignoreTrailingEmptyLinesInCrlfCsvFile() throws IOException {
+        UUID projectId = UUID.randomUUID();
+        Files.writeString(tempDir.resolve("projects.csv"),
+                "id,name,description\r\n" + projectId + ",Project,Desc\r\n\r\n\r\n");
+
+        CsvStorageManager.LoadedWorkspace workspace = new CsvStorageManager(tempDir).load();
+
+        assertThat(workspace.projectRepository().findAll())
+                .extracting(Project::getId)
+                .containsExactly(projectId);
+    }
+
+    @Test
+    void rejectDelimiterOnlyRowInProjectsCsv() throws IOException {
+        Files.writeString(tempDir.resolve("projects.csv"),
+                "id,name,description\n" + UUID.randomUUID() + ",Project,Desc\n,,\n");
+
+        assertThatThrownBy(new CsvStorageManager(tempDir)::load)
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Empty record in projects.csv at line 3")
+                .hasMessageContaining("only delimiters");
+    }
+
+    @Test
+    void rejectDelimiterOnlyRowInTasksCsv() throws IOException {
+        UUID projectId = UUID.randomUUID();
+        Files.writeString(tempDir.resolve("projects.csv"),
+                "id,name,description\n" + projectId + ",Project,Desc\n");
+        Files.writeString(tempDir.resolve("tasks.csv"),
+                "id,projectId,title,description,priority,state,estimatedMinutes,dueDate,labels\n"
+                        + ",,,,,,,,\n");
+
+        assertThatThrownBy(new CsvStorageManager(tempDir)::load)
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Empty record in tasks.csv at line 2")
+                .hasMessageContaining("only delimiters");
+    }
+
+    @Test
+    void rejectDelimiterOnlyRowWithWhitespaceInWorklogsCsv() throws IOException {
+        UUID projectId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        Files.writeString(tempDir.resolve("projects.csv"),
+                "id,name,description\n" + projectId + ",Project,Desc\n");
+        Files.writeString(tempDir.resolve("tasks.csv"),
+                "id,projectId,title,description,priority,state,estimatedMinutes,dueDate,labels\n"
+                        + taskId + "," + projectId + ",Title,Desc,MEDIUM,IN_PROGRESS,,,\n");
+        Files.writeString(tempDir.resolve("worklogs.csv"),
+                "taskId,timestamp,durationMinutes,author,description\n"
+                        + taskId + ",2026-10-21T14:30,45,Author,Work\n"
+                        + " , ,  , ,\n");
+
+        assertThatThrownBy(new CsvStorageManager(tempDir)::load)
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Empty record in worklogs.csv at line 3")
+                .hasMessageContaining("only delimiters");
+    }
 }

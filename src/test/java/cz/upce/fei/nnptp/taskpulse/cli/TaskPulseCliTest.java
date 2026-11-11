@@ -19,6 +19,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Locale;
+import java.util.List;
 import java.util.Scanner;
 import java.util.UUID;
 
@@ -63,6 +65,27 @@ class TaskPulseCliTest {
                 "--exceeded [<minutes>]",
                 "workspace export <archive.zip>",
                 "workspace import <archive.zip>");
+    }
+
+    @Test
+    void enumArgumentsAreCaseInsensitiveAndLocaleIndependent() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            var project = projectService.createProject("Course", "");
+            Task task = taskService.createTask(project.getId(), "Review", "", Priority.HIGH, null, null);
+
+            cli.executeLine("task transition " + task.getId() + " in_progress");
+            assertThat(task.getState()).isEqualTo(TaskState.IN_PROGRESS);
+            assertThat(errContent.toString()).isEmpty();
+
+            outContent.reset();
+            cli.executeLine("task list --priority critical");
+            assertThat(outContent.toString()).contains("No tasks found.");
+            assertThat(errContent.toString()).isEmpty();
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     @Test
@@ -225,6 +248,51 @@ class TaskPulseCliTest {
         cli.executeLine("task list --exceeded " + input);
         assertThat(errContent.toString()).contains(expectedError);
         assertThat(outContent.toString()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "'', None;Past;Soon;Later",
+            "--from 2999-01-01, Later;Soon",
+            "--to 2999-01-31, Past;Soon",
+            "--from 2999-01-01 --to 2999-01-31, Soon",
+            "--from 2999-01-10 --to 2999-01-10, Soon",
+            "--from, None;Past;Soon;Later",
+            "--to, None;Past;Soon;Later"
+    })
+    void taskListFiltersByDueDateRange(String options, String expectedTitles) {
+        tasksWithDueDates();
+        cli.executeLine("task list " + options);
+        assertThat(errContent.toString()).isEmpty();
+        assertThat(listedTitles()).containsExactlyInAnyOrder(
+                expectedTitles.isEmpty() ? new String[0] : expectedTitles.split(";"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "--from 2999-13-01, Invalid date: '2999-13-01'",
+            "--to 10.1.2999, Invalid date: '10.1.2999'",
+            "--from 2999-02-01 --to 2999-01-01, Invalid date range"
+    })
+    void taskListRejectsInvalidDueDateFilters(String options, String expectedError) {
+        cli.executeLine("task list " + options);
+        assertThat(errContent.toString()).contains(expectedError);
+        assertThat(outContent.toString()).isEmpty();
+    }
+
+    private void tasksWithDueDates() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        taskService.createTask(projectId, "None", "", Priority.MEDIUM, null, null);
+        taskService.createTask(projectId, "Past", "", Priority.MEDIUM, null, LocalDate.of(2000, 1, 1));
+        taskService.createTask(projectId, "Soon", "", Priority.MEDIUM, null, LocalDate.of(2999, 1, 10));
+        taskService.createTask(projectId, "Later", "", Priority.MEDIUM, null, LocalDate.of(2999, 3, 1));
+    }
+
+    private List<String> listedTitles() {
+        return outContent.toString().lines()
+                .filter(line -> line.contains(" | "))
+                .map(line -> line.substring(line.lastIndexOf(" | ") + 3))
+                .toList();
     }
 
     private Task taskWith45RecordedMinutes(Integer estimate) {
