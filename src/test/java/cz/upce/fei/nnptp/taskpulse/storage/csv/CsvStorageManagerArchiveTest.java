@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Set;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -28,219 +29,73 @@ class CsvStorageManagerArchiveTest {
 
     @TempDir
     Path tempDir;
-
+    
     @Test
-    void exportCreatesZipContainingAllWorkspaceCsvFiles() throws IOException {
-        Path workspaceDirectory = tempDir.resolve("workspace");
+    void exportCreatesZipContainingAllWorkspaceCsvFiles()
+            throws IOException {
+
+        WorkspaceFixture workspace = createWorkspace("workspace");
         Path archive = tempDir.resolve("backup.zip");
 
-        CsvStorageManager storageManager =
-                new CsvStorageManager(workspaceDirectory);
+        workspace.save();
+        workspace.storage().exportArchive(archive);
 
-        var projectRepository = new InMemoryProjectRepository();
-        var taskRepository = new InMemoryTaskRepository();
-
-        ProjectService projectService =
-                new ProjectService(projectRepository, taskRepository);
-
-        TaskService taskService =
-                new TaskService(taskRepository, projectRepository);
-
-        var project = projectService.createProject(
-                "Archive project",
-                "Project in backup"
-        );
-
-        taskService.createTask(
-                project.getId(),
-                "Archived task",
-                "Task in backup",
-                Priority.HIGH,
-                90,
-                LocalDate.of(2026, 12, 1)
-        );
-
-        storageManager.save(projectRepository, taskRepository);
-        storageManager.exportArchive(archive);
-
-        assertThat(archive)
-                .exists()
-                .isRegularFile();
+        assertThat(archive).isRegularFile();
 
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
-            Set<String> entryNames = zipFile.stream()
-                    .map(ZipEntry::getName)
-                    .collect(java.util.stream.Collectors.toSet());
-
-            assertThat(entryNames).containsExactlyInAnyOrder(
-                    "projects.csv",
-                    "tasks.csv",
-                    "worklogs.csv"
-            );
-
-            assertThat(zipFile.getEntry("projects.csv")).isNotNull();
-            assertThat(zipFile.getEntry("tasks.csv")).isNotNull();
-            assertThat(zipFile.getEntry("worklogs.csv")).isNotNull();
+            assertThat(zipEntryNames(zipFile))
+                    .containsExactlyInAnyOrder(
+                            "projects.csv",
+                            "tasks.csv",
+                            "worklogs.csv"
+                    );
         }
     }
 
     @Test
     void exportAndImportPreserveCompleteWorkspace() {
-        Path sourceDirectory = tempDir.resolve("source");
-        Path targetDirectory = tempDir.resolve("target");
+        WorkspaceFixture source = createWorkspace("source");
         Path archive = tempDir.resolve("complete-backup.zip");
 
-        CsvStorageManager sourceStorage =
-                new CsvStorageManager(sourceDirectory);
+        RoundTripFixture original =
+                createCompleteWorkspace(source);
 
-        var sourceProjects = new InMemoryProjectRepository();
-        var sourceTasks = new InMemoryTaskRepository();
-
-        ProjectService projectService =
-                new ProjectService(sourceProjects, sourceTasks);
-
-        TaskService taskService =
-                new TaskService(sourceTasks, sourceProjects);
-
-        var project = projectService.createProject(
-                "Imported project",
-                "Restored description"
-        );
-
-        Task originalTask = taskService.createTask(
-                project.getId(),
-                "Imported task",
-                "Restored task description",
-                Priority.CRITICAL,
-                120,
-                LocalDate.of(2026, 12, 15)
-        );
-
-        taskService.addLabel(originalTask.getId(), "backup");
-        taskService.addLabel(originalTask.getId(), "important");
-
-        taskService.transitionTask(
-                originalTask.getId(),
-                TaskState.IN_PROGRESS
-        );
-
-        taskService.logWork(
-                originalTask.getId(),
-                45,
-                "Martin",
-                "Archive test"
-        );
-
-        sourceStorage.save(sourceProjects, sourceTasks);
-        sourceStorage.exportArchive(archive);
-
-        CsvStorageManager targetStorage =
-                new CsvStorageManager(targetDirectory);
+        source.save();
+        source.storage().exportArchive(archive);
 
         CsvStorageManager.LoadedWorkspace imported =
-                targetStorage.importArchive(archive);
+                new CsvStorageManager(tempDir.resolve("target"))
+                        .importArchive(archive);
 
-        assertThat(imported.projectRepository().findAll())
-                .singleElement()
-                .satisfies(restoredProject -> {
-                    assertThat(restoredProject.getId())
-                            .isEqualTo(project.getId());
-                    assertThat(restoredProject.getName())
-                            .isEqualTo("Imported project");
-                    assertThat(restoredProject.getDescription())
-                            .isEqualTo("Restored description");
-                });
-
-        assertThat(imported.taskRepository().findAll())
-                .singleElement()
-                .satisfies(restoredTask -> {
-                    assertThat(restoredTask.getId())
-                            .isEqualTo(originalTask.getId());
-                    assertThat(restoredTask.getProjectId())
-                            .isEqualTo(project.getId());
-                    assertThat(restoredTask.getTitle())
-                            .isEqualTo("Imported task");
-                    assertThat(restoredTask.getPriority())
-                            .isEqualTo(Priority.CRITICAL);
-                    assertThat(restoredTask.getState())
-                            .isEqualTo(TaskState.IN_PROGRESS);
-                    assertThat(restoredTask.getEstimatedMinutes())
-                            .isEqualTo(120);
-                    assertThat(restoredTask.getDueDate())
-                            .isEqualTo(LocalDate.of(2026, 12, 15));
-                    assertThat(restoredTask.getLabels())
-                            .containsExactly("backup", "important");
-                    assertThat(restoredTask.getWorklogs())
-                            .singleElement()
-                            .satisfies(worklog -> {
-                                assertThat(worklog.durationMinutes())
-                                        .isEqualTo(45);
-                                assertThat(worklog.author())
-                                        .isEqualTo("Martin");
-                                assertThat(worklog.description())
-                                        .isEqualTo("Archive test");
-                            });
-                });
-
-        assertThat(targetDirectory.resolve("projects.csv"))
-                .isRegularFile();
-        assertThat(targetDirectory.resolve("tasks.csv"))
-                .isRegularFile();
-        assertThat(targetDirectory.resolve("worklogs.csv"))
-                .isRegularFile();
+        assertImportedProject(imported, original);
+        assertImportedTask(imported, original);
+        assertImportedFilesExist(tempDir.resolve("target"));
     }
 
     @Test
     void importReplacesExistingWorkspaceFiles() {
-        Path sourceDirectory = tempDir.resolve("source");
-        Path targetDirectory = tempDir.resolve("target");
         Path archive = tempDir.resolve("replacement.zip");
 
-        CsvStorageManager sourceStorage =
-                new CsvStorageManager(sourceDirectory);
-
-        var sourceProjects = new InMemoryProjectRepository();
-        var sourceTasks = new InMemoryTaskRepository();
-
-        ProjectService sourceProjectService =
-                new ProjectService(sourceProjects, sourceTasks);
-
-        sourceProjectService.createProject(
+        WorkspaceFixture source = createWorkspace("source");
+        source.projectService().createProject(
                 "Replacement project",
                 ""
         );
+        source.save();
+        source.storage().exportArchive(archive);
 
-        sourceStorage.save(sourceProjects, sourceTasks);
-        sourceStorage.exportArchive(archive);
-
-        CsvStorageManager targetStorage =
-                new CsvStorageManager(targetDirectory);
-
-        var oldProjects = new InMemoryProjectRepository();
-        var oldTasks = new InMemoryTaskRepository();
-
-        ProjectService oldProjectService =
-                new ProjectService(oldProjects, oldTasks);
-
-        oldProjectService.createProject("Old project", "");
-
-        targetStorage.save(oldProjects, oldTasks);
+        WorkspaceFixture target = createWorkspace("target");
+        target.projectService().createProject("Old project", "");
+        target.save();
 
         CsvStorageManager.LoadedWorkspace imported =
-                targetStorage.importArchive(archive);
+                target.storage().importArchive(archive);
 
-        assertThat(imported.projectRepository().findAll())
-                .extracting(project -> project.getName())
-                .containsExactly("Replacement project")
-                .doesNotContain("Old project");
-
-        CsvStorageManager.LoadedWorkspace loadedAgain =
-                targetStorage.load();
-
-        assertThat(loadedAgain.projectRepository().findAll())
-                .extracting(project -> project.getName())
-                .containsExactly("Replacement project")
-                .doesNotContain("Old project");
+        assertProjectNames(imported, "Replacement project");
+        assertProjectNames(
+                target.storage().load(),
+                "Replacement project"
+        );
     }
 
     @Test
@@ -341,6 +196,9 @@ class CsvStorageManagerArchiveTest {
                 .extracting(project -> project.getName())
                 .containsExactly("Keep this project");
     }
+    
+    
+    // HELPERS
 
     private void addZipEntry(
             ZipOutputStream zip,
@@ -350,5 +208,157 @@ class CsvStorageManagerArchiveTest {
         zip.putNextEntry(new ZipEntry(name));
         zip.write(content.getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
+    }
+    
+    private WorkspaceFixture createWorkspace(String directoryName) {
+        Path directory = tempDir.resolve(directoryName);
+
+        var projects = new InMemoryProjectRepository();
+        var tasks = new InMemoryTaskRepository();
+
+        return new WorkspaceFixture(
+                new CsvStorageManager(directory),
+                projects,
+                tasks,
+                new ProjectService(projects, tasks),
+                new TaskService(tasks, projects)
+        );
+    }
+
+    private record WorkspaceFixture(
+            CsvStorageManager storage,
+            InMemoryProjectRepository projects,
+            InMemoryTaskRepository tasks,
+            ProjectService projectService,
+            TaskService taskService
+    ) {
+        void save() {
+            storage.save(projects, tasks);
+        }
+    }
+    
+    private Set<String> zipEntryNames(ZipFile zipFile) {
+        return zipFile.stream()
+                .map(ZipEntry::getName)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+    
+    private RoundTripFixture createCompleteWorkspace(
+        WorkspaceFixture workspace
+    ) {
+        var project = workspace.projectService().createProject(
+                "Imported project",
+                "Restored description"
+        );
+
+        Task task = workspace.taskService().createTask(
+                project.getId(),
+                "Imported task",
+                "Restored task description",
+                Priority.CRITICAL,
+                120,
+                LocalDate.of(2026, 12, 15)
+        );
+
+        workspace.taskService().addLabel(task.getId(), "backup");
+        workspace.taskService().addLabel(task.getId(), "important");
+
+        workspace.taskService().transitionTask(
+                task.getId(),
+                TaskState.IN_PROGRESS
+        );
+
+        workspace.taskService().logWork(
+                task.getId(),
+                45,
+                "Martin",
+                "Archive test"
+        );
+
+        return new RoundTripFixture(
+                project.getId(),
+                task.getId()
+        );
+    }
+
+    private void assertImportedProject(
+            CsvStorageManager.LoadedWorkspace imported,
+            RoundTripFixture original
+    ) {
+        assertThat(imported.projectRepository().findAll())
+                .singleElement()
+                .satisfies(project -> {
+                    assertThat(project.getId())
+                            .isEqualTo(original.projectId());
+                    assertThat(project.getName())
+                            .isEqualTo("Imported project");
+                    assertThat(project.getDescription())
+                            .isEqualTo("Restored description");
+                });
+    }
+
+    private void assertImportedTask(
+            CsvStorageManager.LoadedWorkspace imported,
+            RoundTripFixture original
+    ) {
+        assertThat(imported.taskRepository().findAll())
+                .singleElement()
+                .satisfies(task -> {
+                    assertThat(task.getId())
+                            .isEqualTo(original.taskId());
+                    assertThat(task.getProjectId())
+                            .isEqualTo(original.projectId());
+                    assertThat(task.getTitle())
+                            .isEqualTo("Imported task");
+                    assertThat(task.getPriority())
+                            .isEqualTo(Priority.CRITICAL);
+                    assertThat(task.getState())
+                            .isEqualTo(TaskState.IN_PROGRESS);
+                    assertThat(task.getEstimatedMinutes())
+                            .isEqualTo(120);
+                    assertThat(task.getDueDate())
+                            .isEqualTo(LocalDate.of(2026, 12, 15));
+                    assertThat(task.getLabels())
+                            .containsExactly("backup", "important");
+
+                    assertImportedWorklog(task);
+                });
+    }
+
+    private void assertImportedWorklog(Task task) {
+        assertThat(task.getWorklogs())
+                .singleElement()
+                .satisfies(worklog -> {
+                    assertThat(worklog.durationMinutes())
+                            .isEqualTo(45);
+                    assertThat(worklog.author())
+                            .isEqualTo("Martin");
+                    assertThat(worklog.description())
+                            .isEqualTo("Archive test");
+                });
+    }
+
+    private void assertImportedFilesExist(Path directory) {
+        assertThat(directory.resolve("projects.csv"))
+                .isRegularFile();
+        assertThat(directory.resolve("tasks.csv"))
+                .isRegularFile();
+        assertThat(directory.resolve("worklogs.csv"))
+                .isRegularFile();
+    }
+
+    private record RoundTripFixture(
+            UUID projectId,
+            UUID taskId
+    ) {
+    }
+    
+    private void assertProjectNames(
+        CsvStorageManager.LoadedWorkspace workspace,
+        String... expectedNames
+    ) {
+        assertThat(workspace.projectRepository().findAll())
+                .extracting(project -> project.getName())
+                .containsExactlyInAnyOrder(expectedNames);
     }
 }
