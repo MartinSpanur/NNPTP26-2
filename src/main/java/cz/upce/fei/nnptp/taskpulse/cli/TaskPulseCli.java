@@ -10,6 +10,8 @@ import cz.upce.fei.nnptp.taskpulse.service.TaskQuery;
 import cz.upce.fei.nnptp.taskpulse.service.TaskService;
 import cz.upce.fei.nnptp.taskpulse.service.TaskSortOrder;
 import cz.upce.fei.nnptp.taskpulse.storage.csv.CsvStorageManager;
+import cz.upce.fei.nnptp.taskpulse.storage.ProjectRepository;
+import cz.upce.fei.nnptp.taskpulse.storage.TaskRepository;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -19,17 +21,21 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.UUID;
-import jdk.jshell.spi.ExecutionControl;
 
 public class TaskPulseCli {
-    private final ProjectService projectService;
-    private final TaskService taskService;
+    
+    private ProjectService projectService;
+    private TaskService taskService;
+
+    private ProjectRepository projectRepository;
+    private TaskRepository taskRepository;
+
     private final CsvStorageManager storageManager;
     private final PrintStream out;
     private final PrintStream err;
     private final CliErrorHandler errorHandler;
     
-    public TaskPulseCli(ProjectService projectService, TaskService taskService, CsvStorageManager storageManager, PrintStream out, PrintStream err) {
+    public TaskPulseCli(ProjectRepository projectRepository, TaskRepository taskRepository, ProjectService projectService, TaskService taskService, CsvStorageManager storageManager, PrintStream out, PrintStream err) {
         this.projectService = Objects.requireNonNull(projectService, "ProjectService must not be null");
         this.taskService = Objects.requireNonNull(taskService, "TaskService must not be null");
         this.storageManager = Objects.requireNonNull(storageManager, "StorageManager must not be null");
@@ -38,8 +44,8 @@ public class TaskPulseCli {
         this.errorHandler = new CliErrorHandler(this.err);
     }
 
-    public TaskPulseCli(ProjectService projectService, CsvStorageManager storageManager, TaskService taskService) {
-        this(projectService, taskService, storageManager, System.out, System.err);
+    public TaskPulseCli(ProjectRepository projectRepository, TaskRepository taskRepository, ProjectService projectService, CsvStorageManager storageManager, TaskService taskService) {
+        this(projectRepository, taskRepository, projectService, taskService, storageManager, System.out, System.err);
     }
 
     public void runInteractive(Scanner scanner) {
@@ -85,6 +91,10 @@ public class TaskPulseCli {
             errorHandler.handle(e);
         }
         return true;
+    }
+    
+    public void saveWorkspace() {
+        storageManager.save(projectRepository, taskRepository);
     }
 
     private void printHelp() {
@@ -406,19 +416,52 @@ public class TaskPulseCli {
     
     // Delegation to storageManager that catches exceptions
     private void exportWorkspace(Path archivePath) {
-        try{
-            storageManager.exportArchive(archivePath);
-        }catch(Exception e){ // Later remake to IO exception
-            
-        }
+        
+        // Save current in-memory changes before creating the backup.
+        saveWorkspace();
+
+        storageManager.exportArchive(archivePath);
+
+        out.println(
+                "Workspace exported to: "
+                        + archivePath.toAbsolutePath().normalize()
+        );
     }
 
     // Delegation to storageManager that catches exceptions
     private void importWorkspace(Path archivePath) {
-        try{
+        CsvStorageManager.LoadedWorkspace importedWorkspace =
             storageManager.importArchive(archivePath);
-        }catch(Exception e){ // Later remake to IO exception
-             
-        }
+
+        ProjectRepository importedProjectRepository =
+                importedWorkspace.projectRepository();
+        TaskRepository importedTaskRepository =
+                importedWorkspace.taskRepository();
+
+        ProjectService importedProjectService =
+                new ProjectService(
+                        importedProjectRepository,
+                        importedTaskRepository
+                );
+
+        TaskService importedTaskService =
+                new TaskService(
+                        importedTaskRepository,
+                        importedProjectRepository
+                );
+
+        /*
+         * Replace all active references together, but only after the archive has
+         * been extracted, validated, copied and loaded successfully.
+         */
+        this.projectRepository = importedProjectRepository;
+        this.taskRepository = importedTaskRepository;
+        this.projectService = importedProjectService;
+        this.taskService = importedTaskService;
+
+        out.println(
+                "Workspace imported from: "
+                        + archivePath.toAbsolutePath().normalize()
+        );
     }
 }

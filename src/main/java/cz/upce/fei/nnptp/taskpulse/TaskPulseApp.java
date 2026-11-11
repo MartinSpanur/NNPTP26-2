@@ -36,15 +36,15 @@ public class TaskPulseApp {
             return;
         }
 
-        TaskPulseCli cli = new TaskPulseCli(projectService, storageManager, taskService);
+        TaskPulseCli cli = new TaskPulseCli(projectRepository, taskRepository, projectService, storageManager, taskService);
         if (args.length > 0) {
             String commandLine = String.join(" ", args);
             cli.executeLine(commandLine);
-            storageManager.save(projectRepository, taskRepository);
+            cli.saveWorkspace();
         } else {
             Scanner scanner = new Scanner(System.in);
             cli.runInteractive(scanner);
-            storageManager.save(projectRepository, taskRepository);
+            cli.saveWorkspace();
         }
     }
 

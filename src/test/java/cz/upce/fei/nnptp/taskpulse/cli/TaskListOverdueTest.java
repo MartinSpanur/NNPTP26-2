@@ -47,7 +47,7 @@ class TaskListOverdueTest {
         tasks = new TaskService(taskRepository, projectRepository, clock);
         projectId = projects.createProject("Course", "").getId();
         CsvStorageManager storageManager = new CsvStorageManager(tempDir);
-        cli = new TaskPulseCli(projects, tasks, storageManager,
+        cli = new TaskPulseCli(projectRepository, taskRepository, projects, tasks, storageManager,
                 new PrintStream(output, true, StandardCharsets.UTF_8),
                 new PrintStream(errors, true, StandardCharsets.UTF_8));
     }

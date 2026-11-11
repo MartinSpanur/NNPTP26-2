@@ -344,65 +344,65 @@ public class CsvStorageManager {
     private void extractArchive(
         Path archivePath,
         Path targetDirectory
-) throws IOException {
-    Set<String> extractedFiles = new HashSet<>();
+    ) throws IOException {
+        Set<String> extractedFiles = new HashSet<>();
 
-    try (
-            InputStream fileInput = Files.newInputStream(archivePath);
-            BufferedInputStream bufferedInput =
-                    new BufferedInputStream(fileInput);
-            ZipInputStream zipInput =
-                    new ZipInputStream(bufferedInput)
-    ) {
-        ZipEntry entry;
+        try (
+                InputStream fileInput = Files.newInputStream(archivePath);
+                BufferedInputStream bufferedInput =
+                        new BufferedInputStream(fileInput);
+                ZipInputStream zipInput =
+                        new ZipInputStream(bufferedInput)
+        ) {
+            ZipEntry entry;
 
-        while ((entry = zipInput.getNextEntry()) != null) {
-            if (entry.isDirectory()) {
+            while ((entry = zipInput.getNextEntry()) != null) {
+                if (entry.isDirectory()) {
+                    zipInput.closeEntry();
+                    continue;
+                }
+
+                String entryName = entry.getName().replace('\\', '/');
+
+                // The workspace format only allows the three CSV files directly
+                // in the root of the ZIP archive.
+                if (entryName.contains("/")
+                        || !WORKSPACE_FILES.contains(entryName)) {
+                    throw new StorageException(
+                            "Unsupported file in workspace archive: "
+                                    + entry.getName()
+                    );
+                }
+
+                if (!extractedFiles.add(entryName)) {
+                    throw new StorageException(
+                            "Duplicate file in workspace archive: " + entryName
+                    );
+                }
+
+                Path outputPath =
+                        targetDirectory.resolve(entryName).normalize();
+
+                // Additional protection against Zip Slip/path traversal.
+                if (!outputPath.startsWith(targetDirectory)) {
+                    throw new StorageException(
+                            "Unsafe archive entry: " + entry.getName()
+                    );
+                }
+
+                try (
+                        OutputStream output =
+                                new BufferedOutputStream(
+                                        Files.newOutputStream(outputPath)
+                                )
+                ) {
+                    zipInput.transferTo(output);
+                }
+
                 zipInput.closeEntry();
-                continue;
             }
-
-            String entryName = entry.getName().replace('\\', '/');
-
-            // The workspace format only allows the three CSV files directly
-            // in the root of the ZIP archive.
-            if (entryName.contains("/")
-                    || !WORKSPACE_FILES.contains(entryName)) {
-                throw new StorageException(
-                        "Unsupported file in workspace archive: "
-                                + entry.getName()
-                );
-            }
-
-            if (!extractedFiles.add(entryName)) {
-                throw new StorageException(
-                        "Duplicate file in workspace archive: " + entryName
-                );
-            }
-
-            Path outputPath =
-                    targetDirectory.resolve(entryName).normalize();
-
-            // Additional protection against Zip Slip/path traversal.
-            if (!outputPath.startsWith(targetDirectory)) {
-                throw new StorageException(
-                        "Unsafe archive entry: " + entry.getName()
-                );
-            }
-
-            try (
-                    OutputStream output =
-                            new BufferedOutputStream(
-                                    Files.newOutputStream(outputPath)
-                            )
-            ) {
-                zipInput.transferTo(output);
-            }
-
-            zipInput.closeEntry();
         }
     }
-}
 
     private void validateImportedFiles(Path directory) {
         for (String fileName : WORKSPACE_FILES) {

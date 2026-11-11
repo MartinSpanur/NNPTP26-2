@@ -48,7 +48,7 @@ class TaskPulseCliTest {
         taskService = new TaskService(taskRepo, projectRepo);
         CsvStorageManager storageManager = new CsvStorageManager(tempDir);
 
-        cli = new TaskPulseCli(projectService, taskService, storageManager, out, err);
+        cli = new TaskPulseCli(projectRepo, taskRepo, projectService, taskService, storageManager, out, err);
     }
 
     @Test
