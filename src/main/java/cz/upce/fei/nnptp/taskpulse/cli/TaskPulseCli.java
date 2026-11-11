@@ -35,7 +35,15 @@ public class TaskPulseCli {
     private final PrintStream err;
     private final CliErrorHandler errorHandler;
     
-    public TaskPulseCli(ProjectRepository projectRepository, TaskRepository taskRepository, ProjectService projectService, TaskService taskService, CsvStorageManager storageManager, PrintStream out, PrintStream err) {
+    public TaskPulseCli(
+            ProjectRepository projectRepository, 
+            TaskRepository taskRepository, 
+            ProjectService projectService, 
+            TaskService taskService, 
+            CsvStorageManager storageManager, 
+            PrintStream out, 
+            PrintStream err
+    ) {
         
         this.projectRepository = Objects.requireNonNull(projectRepository, "ProjectRepository must not be null");
         this.taskRepository = Objects.requireNonNull(taskRepository, "TaskRepository must not be null");
@@ -47,7 +55,13 @@ public class TaskPulseCli {
         this.errorHandler = new CliErrorHandler(this.err);
     }
 
-    public TaskPulseCli(ProjectRepository projectRepository, TaskRepository taskRepository, ProjectService projectService, CsvStorageManager storageManager, TaskService taskService) {
+    public TaskPulseCli(
+            ProjectRepository projectRepository, 
+            TaskRepository taskRepository, 
+            ProjectService projectService, 
+            TaskService taskService, 
+            CsvStorageManager storageManager
+    ) {
         this(projectRepository, taskRepository, projectService, taskService, storageManager, System.out, System.err);
     }
 
@@ -417,7 +431,6 @@ public class TaskPulseCli {
         };
     }
     
-    // Delegation to storageManager that catches exceptions
     private void exportWorkspace(Path archivePath) {
         
         // Save current in-memory changes before creating the backup.
@@ -431,40 +444,39 @@ public class TaskPulseCli {
         );
     }
 
-    // Delegation to storageManager that catches exceptions
     private void importWorkspace(Path archivePath) {
         CsvStorageManager.LoadedWorkspace importedWorkspace =
-            storageManager.importArchive(archivePath);
+                storageManager.importArchive(archivePath);
 
-        ProjectRepository importedProjectRepository =
-                importedWorkspace.projectRepository();
-        TaskRepository importedTaskRepository =
-                importedWorkspace.taskRepository();
-
-        ProjectService importedProjectService =
-                new ProjectService(
-                        importedProjectRepository,
-                        importedTaskRepository
-                );
-
-        TaskService importedTaskService =
-                new TaskService(
-                        importedTaskRepository,
-                        importedProjectRepository
-                );
-
-        /*
-         * Replace all active references together, but only after the archive has
-         * been extracted, validated, copied and loaded successfully.
-         */
-        this.projectRepository = importedProjectRepository;
-        this.taskRepository = importedTaskRepository;
-        this.projectService = importedProjectService;
-        this.taskService = importedTaskService;
+        activateWorkspace(importedWorkspace);
 
         out.println(
                 "Workspace imported from: "
                         + archivePath.toAbsolutePath().normalize()
         );
+    }
+    
+    private void activateWorkspace(
+        CsvStorageManager.LoadedWorkspace workspace
+    ) {
+        ProjectRepository projects =
+                workspace.projectRepository();
+        TaskRepository tasks =
+                workspace.taskRepository();
+
+        ProjectService projectsService =
+                new ProjectService(projects, tasks);
+
+        TaskService tasksService =
+                new TaskService(tasks, projects);
+
+        /*
+         * Update the active workspace only after all replacement
+         * objects have been constructed successfully.
+         */
+        this.projectRepository = projects;
+        this.taskRepository = tasks;
+        this.projectService = projectsService;
+        this.taskService = tasksService;
     }
 }

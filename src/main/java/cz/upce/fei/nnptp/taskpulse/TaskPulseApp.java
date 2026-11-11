@@ -36,7 +36,7 @@ public class TaskPulseApp {
             return;
         }
 
-        TaskPulseCli cli = new TaskPulseCli(projectRepository, taskRepository, projectService, storageManager, taskService);
+        TaskPulseCli cli = new TaskPulseCli(projectRepository, taskRepository, projectService, taskService, storageManager);
         if (args.length > 0) {
             String commandLine = String.join(" ", args);
             cli.executeLine(commandLine);
