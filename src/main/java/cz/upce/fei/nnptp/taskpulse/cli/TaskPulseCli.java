@@ -9,31 +9,37 @@ import cz.upce.fei.nnptp.taskpulse.service.ProjectService;
 import cz.upce.fei.nnptp.taskpulse.service.TaskQuery;
 import cz.upce.fei.nnptp.taskpulse.service.TaskService;
 import cz.upce.fei.nnptp.taskpulse.service.TaskSortOrder;
+import cz.upce.fei.nnptp.taskpulse.storage.csv.CsvStorageManager;
 
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.UUID;
+import jdk.jshell.spi.ExecutionControl;
 
 public class TaskPulseCli {
     private final ProjectService projectService;
     private final TaskService taskService;
+    private final CsvStorageManager storageManager;
     private final PrintStream out;
     private final PrintStream err;
     private final CliErrorHandler errorHandler;
     
-    public TaskPulseCli(ProjectService projectService, TaskService taskService, PrintStream out, PrintStream err) {
+    public TaskPulseCli(ProjectService projectService, TaskService taskService, CsvStorageManager storageManager, PrintStream out, PrintStream err) {
         this.projectService = Objects.requireNonNull(projectService, "ProjectService must not be null");
         this.taskService = Objects.requireNonNull(taskService, "TaskService must not be null");
+        this.storageManager = Objects.requireNonNull(storageManager, "StorageManager must not be null");
         this.out = Objects.requireNonNull(out, "out must not be null");
         this.err = Objects.requireNonNull(err, "err must not be null");
         this.errorHandler = new CliErrorHandler(this.err);
     }
 
-    public TaskPulseCli(ProjectService projectService, TaskService taskService) {
-        this(projectService, taskService, System.out, System.err);
+    public TaskPulseCli(ProjectService projectService, CsvStorageManager storageManager, TaskService taskService) {
+        this(projectService, taskService, storageManager, System.out, System.err);
     }
 
     public void runInteractive(Scanner scanner) {
@@ -72,6 +78,7 @@ public class TaskPulseCli {
                 case "project" -> handleProjectCommand(tokens.subList(1, tokens.size()));
                 case "task" -> handleTaskCommand(tokens.subList(1, tokens.size()));
                 case "worklog" -> handleWorklogCommand(tokens.subList(1, tokens.size()));
+                case "workspace" -> handleWorkspaceCommand(tokens.subList(1, tokens.size()));
                 default -> err.println("Unknown command: '" + command + "'. Type 'help' for available commands.");
             }
         } catch (Exception e) {
@@ -97,6 +104,8 @@ public class TaskPulseCli {
         out.println("  task delete <task-id>");
         out.println("  worklog log <task-id> <durationMinutes> --author <author> [--desc <description>]");
         out.println("  worklog list <task-id>");
+        out.println("  workspace export <archive.zip>");
+        out.println("  workspace import <archive.zip>");
         out.println("  exit / quit");
     }
 
@@ -336,6 +345,22 @@ public class TaskPulseCli {
             default -> err.println("Unknown worklog action: '" + action + "'");
         }
     }
+    
+    private void handleWorkspaceCommand(List<String> args) {
+        if (args.size() < 2) {
+            err.println("Usage: workspace <export|import> <archive.zip>");
+            return;
+        }
+
+        String action = args.get(0).toLowerCase(Locale.ROOT);
+        Path archive = Path.of(args.get(1));
+
+        switch (action) {
+            case "export" -> exportWorkspace(archive);
+            case "import" -> importWorkspace(archive);
+            default -> err.println("Unknown workspace action: '" + action + "'");
+        }
+    }
 
     private long parseVarianceThreshold(String value) {
         try {
@@ -377,5 +402,23 @@ public class TaskPulseCli {
             case "priority-duedate" -> TaskSortOrder.PRIORITY_DESC_THEN_DUE_DATE_ASC;
             default -> throw new IllegalArgumentException("Invalid sort order: '" + val + "'. Allowed: [title, priority, duedate, priority-duedate]");
         };
+    }
+    
+    // Delegation to storageManager that catches exceptions
+    private void exportWorkspace(Path archivePath) {
+        try{
+            storageManager.exportArchive(archivePath);
+        }catch(Exception e){ // Later remake to IO exception
+            
+        }
+    }
+
+    // Delegation to storageManager that catches exceptions
+    private void importWorkspace(Path archivePath) {
+        try{
+            storageManager.importArchive(archivePath);
+        }catch(Exception e){ // Later remake to IO exception
+             
+        }
     }
 }

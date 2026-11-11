@@ -11,7 +11,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import cz.upce.fei.nnptp.taskpulse.storage.csv.CsvStorageManager;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +34,9 @@ class TaskListOverdueTest {
     private TaskService tasks;
     private TaskPulseCli cli;
     private UUID projectId;
+    
+    @TempDir
+    Path tempDir;
 
     @BeforeEach
     void setUp() {
@@ -40,7 +46,8 @@ class TaskListOverdueTest {
         Clock clock = Clock.fixed(Instant.parse("2026-11-03T23:30:00Z"), ZoneId.of("Europe/Prague"));
         tasks = new TaskService(taskRepository, projectRepository, clock);
         projectId = projects.createProject("Course", "").getId();
-        cli = new TaskPulseCli(projects, tasks,
+        CsvStorageManager storageManager = new CsvStorageManager(tempDir);
+        cli = new TaskPulseCli(projects, tasks, storageManager,
                 new PrintStream(output, true, StandardCharsets.UTF_8),
                 new PrintStream(errors, true, StandardCharsets.UTF_8));
     }

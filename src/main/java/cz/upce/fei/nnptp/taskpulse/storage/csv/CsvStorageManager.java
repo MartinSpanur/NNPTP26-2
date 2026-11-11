@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import jdk.jshell.spi.ExecutionControl;
+import jdk.jshell.spi.ExecutionControl.NotImplementedException;
 
 public class CsvStorageManager {
     private final Path dataDirectory;
@@ -192,6 +194,18 @@ public class CsvStorageManager {
         } catch (IOException e) {
             throw new StorageException("Failed to save workspace to CSV: " + e.getMessage(), e);
         }
+    }
+    
+    public void exportArchive(Path archivePath){
+        throw new UnsupportedOperationException(
+            "Workspace archive export is not implemented yet"
+        );
+    }
+
+    public LoadedWorkspace importArchive(Path archivePath){
+        throw new UnsupportedOperationException(
+            "Workspace archive import is not implemented yet"
+        );
     }
 
     private void saveProjects(Path path, List<Project> projects) throws IOException {

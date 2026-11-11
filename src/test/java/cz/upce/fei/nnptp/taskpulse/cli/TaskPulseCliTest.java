@@ -11,7 +11,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import cz.upce.fei.nnptp.taskpulse.storage.csv.CsvStorageManager;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +31,9 @@ class TaskPulseCliTest {
     private ProjectService projectService;
     private TaskService taskService;
     private TaskPulseCli cli;
+    
+    @TempDir
+    Path tempDir;
 
     @BeforeEach
     void setUp() {
@@ -40,16 +46,23 @@ class TaskPulseCliTest {
         InMemoryTaskRepository taskRepo = new InMemoryTaskRepository();
         projectService = new ProjectService(projectRepo, taskRepo);
         taskService = new TaskService(taskRepo, projectRepo);
+        CsvStorageManager storageManager = new CsvStorageManager(tempDir);
 
-        cli = new TaskPulseCli(projectService, taskService, out, err);
+        cli = new TaskPulseCli(projectService, taskService, storageManager, out, err);
     }
 
     @Test
     void helpCommandDisplaysAvailableCommands() {
         boolean continueRunning = cli.executeLine("help");
         assertThat(continueRunning).isTrue();
-        assertThat(outContent.toString()).contains("Available commands:", "project add", "task add", "worklog log",
-                "--exceeded [<minutes>]");
+        assertThat(outContent.toString()).contains(
+            "Available commands:", 
+                "project add", 
+                "task add", 
+                "worklog log",
+                "--exceeded [<minutes>]",
+                "workspace export <archive.zip>",
+                "workspace import <archive.zip>");
     }
 
     @Test
