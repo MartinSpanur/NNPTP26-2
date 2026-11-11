@@ -25,11 +25,23 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import jdk.jshell.spi.ExecutionControl;
-import jdk.jshell.spi.ExecutionControl.NotImplementedException;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.StandardCopyOption;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 public class CsvStorageManager {
     private final Path dataDirectory;
+    
+    private static final List<String> WORKSPACE_FILES = List.of(
+        "projects.csv",
+        "tasks.csv",
+        "worklogs.csv"
+    );
 
     public CsvStorageManager(Path dataDirectory) {
         this.dataDirectory = Objects.requireNonNull(dataDirectory, "Data directory must not be null");
@@ -197,15 +209,247 @@ public class CsvStorageManager {
     }
     
     public void exportArchive(Path archivePath){
-        throw new UnsupportedOperationException(
-            "Workspace archive export is not implemented yet"
-        );
+        Objects.requireNonNull(archivePath, "Archive path must not be null");
+
+        Path normalizedArchivePath = archivePath.toAbsolutePath().normalize();
+
+        try {
+            if (!Files.isDirectory(dataDirectory)) {
+                throw new StorageException(
+                        "Workspace data directory does not exist: "
+                                + dataDirectory.toAbsolutePath()
+                );
+            }
+
+            Path parent = normalizedArchivePath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+
+            Path temporaryArchive = Files.createTempFile(
+                    parent,
+                    "taskpulse-export-",
+                    ".zip"
+            );
+
+            boolean exported = false;
+
+            try {
+                try (
+                        OutputStream fileOutput =
+                                Files.newOutputStream(temporaryArchive);
+                        BufferedOutputStream bufferedOutput =
+                                new BufferedOutputStream(fileOutput);
+                        ZipOutputStream zipOutput =
+                                new ZipOutputStream(bufferedOutput)
+                ) {
+                    for (String fileName : WORKSPACE_FILES) {
+                        Path csvPath = dataDirectory.resolve(fileName);
+
+                        if (!Files.isRegularFile(csvPath)) {
+                            throw new StorageException(
+                                    "Workspace file is missing: " + fileName
+                            );
+                        }
+
+                        ZipEntry entry = new ZipEntry(fileName);
+                        zipOutput.putNextEntry(entry);
+
+                        try (
+                                InputStream input =
+                                        new BufferedInputStream(
+                                                Files.newInputStream(csvPath)
+                                        )
+                        ) {
+                            input.transferTo(zipOutput);
+                        }
+
+                        zipOutput.closeEntry();
+                    }
+                }
+
+                moveReplacing(temporaryArchive, normalizedArchivePath);
+                exported = true;
+            } finally {
+                if (!exported) {
+                    Files.deleteIfExists(temporaryArchive);
+                }
+            }
+        } catch (StorageException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new StorageException(
+                    "Failed to export workspace archive: " + e.getMessage(),
+                    e
+            );
+        }
     }
 
     public LoadedWorkspace importArchive(Path archivePath){
-        throw new UnsupportedOperationException(
+        /*throw new UnsupportedOperationException(
             "Workspace archive import is not implemented yet"
-        );
+        );*/
+        Objects.requireNonNull(archivePath, "Archive path must not be null");
+
+        Path normalizedArchivePath = archivePath.toAbsolutePath().normalize();
+
+        if (!Files.isRegularFile(normalizedArchivePath)) {
+            throw new StorageException(
+                    "Workspace archive does not exist: " + normalizedArchivePath
+            );
+        }
+
+        Path temporaryDirectory = null;
+
+        try {
+            temporaryDirectory =
+                    Files.createTempDirectory("taskpulse-import-");
+
+            extractArchive(normalizedArchivePath, temporaryDirectory);
+            validateImportedFiles(temporaryDirectory);
+
+            CsvStorageManager importedStorage =
+                    new CsvStorageManager(temporaryDirectory);
+
+            // Fully parse and validate the imported CSV relationships before the
+            // current workspace is changed.
+            importedStorage.load();
+
+            Files.createDirectories(dataDirectory);
+
+            for (String fileName : WORKSPACE_FILES) {
+                Files.copy(
+                        temporaryDirectory.resolve(fileName),
+                        dataDirectory.resolve(fileName),
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            }
+
+            // Load from the final destination, not from the temporary directory.
+            return load();
+        } catch (StorageException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new StorageException(
+                    "Failed to import workspace archive: " + e.getMessage(),
+                    e
+            );
+        } finally {
+            if (temporaryDirectory != null) {
+                deleteDirectoryQuietly(temporaryDirectory);
+            }
+        }
+    }
+    
+    private void extractArchive(
+        Path archivePath,
+        Path targetDirectory
+) throws IOException {
+    Set<String> extractedFiles = new HashSet<>();
+
+    try (
+            InputStream fileInput = Files.newInputStream(archivePath);
+            BufferedInputStream bufferedInput =
+                    new BufferedInputStream(fileInput);
+            ZipInputStream zipInput =
+                    new ZipInputStream(bufferedInput)
+    ) {
+        ZipEntry entry;
+
+        while ((entry = zipInput.getNextEntry()) != null) {
+            if (entry.isDirectory()) {
+                zipInput.closeEntry();
+                continue;
+            }
+
+            String entryName = entry.getName().replace('\\', '/');
+
+            // The workspace format only allows the three CSV files directly
+            // in the root of the ZIP archive.
+            if (entryName.contains("/")
+                    || !WORKSPACE_FILES.contains(entryName)) {
+                throw new StorageException(
+                        "Unsupported file in workspace archive: "
+                                + entry.getName()
+                );
+            }
+
+            if (!extractedFiles.add(entryName)) {
+                throw new StorageException(
+                        "Duplicate file in workspace archive: " + entryName
+                );
+            }
+
+            Path outputPath =
+                    targetDirectory.resolve(entryName).normalize();
+
+            // Additional protection against Zip Slip/path traversal.
+            if (!outputPath.startsWith(targetDirectory)) {
+                throw new StorageException(
+                        "Unsafe archive entry: " + entry.getName()
+                );
+            }
+
+            try (
+                    OutputStream output =
+                            new BufferedOutputStream(
+                                    Files.newOutputStream(outputPath)
+                            )
+            ) {
+                zipInput.transferTo(output);
+            }
+
+            zipInput.closeEntry();
+        }
+    }
+}
+
+    private void validateImportedFiles(Path directory) {
+        for (String fileName : WORKSPACE_FILES) {
+            Path file = directory.resolve(fileName);
+
+            if (!Files.isRegularFile(file)) {
+                throw new StorageException(
+                        "Workspace archive is missing required file: "
+                                + fileName
+                );
+            }
+        }
+    }
+
+    private void moveReplacing(
+            Path source,
+            Path destination
+    ) throws IOException {
+        try {
+            Files.move(
+                    source,
+                    destination,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(
+                    source,
+                    destination,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        }
+    }
+
+    private void deleteDirectoryQuietly(Path directory) {
+        try (var paths = Files.walk(directory)) {
+            paths.sorted((first, second) -> second.compareTo(first))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException ignored) {
+                            // Cleanup failure must not hide the original result.
+                        }
+                    });
+        } catch (IOException ignored) {
+            // Cleanup failure must not hide the original result.
+        }
     }
 
     private void saveProjects(Path path, List<Project> projects) throws IOException {
