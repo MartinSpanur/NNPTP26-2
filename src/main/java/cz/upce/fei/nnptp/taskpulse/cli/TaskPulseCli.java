@@ -36,6 +36,9 @@ public class TaskPulseCli {
     private final CliErrorHandler errorHandler;
     
     public TaskPulseCli(ProjectRepository projectRepository, TaskRepository taskRepository, ProjectService projectService, TaskService taskService, CsvStorageManager storageManager, PrintStream out, PrintStream err) {
+        
+        this.projectRepository = Objects.requireNonNull(projectRepository, "ProjectRepository must not be null");
+        this.taskRepository = Objects.requireNonNull(taskRepository, "TaskRepository must not be null");
         this.projectService = Objects.requireNonNull(projectService, "ProjectService must not be null");
         this.taskService = Objects.requireNonNull(taskService, "TaskService must not be null");
         this.storageManager = Objects.requireNonNull(storageManager, "StorageManager must not be null");

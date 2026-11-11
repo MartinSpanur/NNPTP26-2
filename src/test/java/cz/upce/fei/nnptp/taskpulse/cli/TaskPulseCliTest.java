@@ -15,6 +15,7 @@ import cz.upce.fei.nnptp.taskpulse.storage.csv.CsvStorageManager;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -234,5 +235,191 @@ class TaskPulseCliTest {
         taskService.logWork(task.getId(), 20, "Dev", "");
         taskService.logWork(task.getId(), 25, "Dev", "");
         return task;
+    }
+    
+    @Test
+    void workspaceExportCommandCreatesArchiveFromCurrentWorkspace() {
+        var project = projectService.createProject(
+                "Exported project",
+                "CLI export test"
+        );
+
+        Task task = taskService.createTask(
+                project.getId(),
+                "Exported task",
+                "",
+                Priority.HIGH,
+                30,
+                null
+        );
+
+        taskService.transitionTask(
+                task.getId(),
+                TaskState.IN_PROGRESS
+        );
+
+        taskService.logWork(
+                task.getId(),
+                15,
+                "Tester",
+                "Export through CLI"
+        );
+
+        Path archive = tempDir.resolve("cli-backup.zip");
+
+        String cliArchivePath = archive.toAbsolutePath()
+                .normalize()
+                .toString()
+                .replace('\\', '/');
+
+        boolean continueRunning = cli.executeLine(
+                "workspace export \"" + cliArchivePath + "\""
+        );
+
+        assertThat(continueRunning).isTrue();
+
+        // Check the error first so a failed export gives a useful test message.
+        assertThat(errContent.toString(StandardCharsets.UTF_8))
+                .isEmpty();
+
+        assertThat(archive)
+                .exists()
+                .isRegularFile();
+
+        assertThat(outContent.toString(StandardCharsets.UTF_8))
+                .contains("Workspace exported to:")
+                .contains(
+                        archive.toAbsolutePath()
+                                .normalize()
+                                .toString()
+                );
+
+        CsvStorageManager importedStorage =
+                new CsvStorageManager(tempDir.resolve("export-check"));
+
+        CsvStorageManager.LoadedWorkspace exported =
+                importedStorage.importArchive(archive);
+
+        assertThat(exported.projectRepository().findAll())
+                .extracting(importedProject -> importedProject.getName())
+                .containsExactly("Exported project");
+
+        assertThat(exported.taskRepository().findAll())
+                .singleElement()
+                .satisfies(importedTask -> {
+                    assertThat(importedTask.getTitle())
+                            .isEqualTo("Exported task");
+                    assertThat(importedTask.getWorklogs()).hasSize(1);
+                    assertThat(importedTask.getTotalRecordedMinutes())
+                            .isEqualTo(15);
+                });
+    }
+    
+    @Test
+    void workspaceImportCommandReplacesWorkspaceImmediately() {
+        Path sourceDirectory = tempDir.resolve("import-source");
+        Path archive = tempDir.resolve("import.zip");
+
+        CsvStorageManager sourceStorage = new CsvStorageManager(sourceDirectory);
+
+        var sourceProjectRepository = new InMemoryProjectRepository();
+        var sourceTaskRepository = new InMemoryTaskRepository();
+
+        ProjectService sourceProjectService =
+                new ProjectService(sourceProjectRepository, sourceTaskRepository);
+
+        TaskService sourceTaskService =
+                new TaskService(sourceTaskRepository, sourceProjectRepository);
+
+        var importedProject = sourceProjectService.createProject( "Restored project", "Imported through CLI");
+
+        Task importedTask = sourceTaskService.createTask(importedProject.getId(), "Restored task",
+                "", Priority.CRITICAL, 60, null);
+
+        sourceStorage.save(
+                sourceProjectRepository,
+                sourceTaskRepository
+        );
+        sourceStorage.exportArchive(archive);
+
+        projectService.createProject("Old project", "");
+
+        cli.executeLine(
+                "workspace import \"" + archive + "\""
+        );
+
+        assertThat(errContent.toString()).isEmpty();
+
+        assertThat(outContent.toString())
+                .contains("Workspace imported from:")
+                .contains(archive.toAbsolutePath().normalize().toString());
+
+        /*
+         * Reset output and execute commands after import. These commands must use
+         * the newly installed services and repositories.
+         */
+        outContent.reset();
+
+        cli.executeLine("project list");
+        cli.executeLine("task list");
+
+        assertThat(outContent.toString())
+                .contains(
+                        "Restored project",
+                        "Restored task",
+                        importedProject.getId().toString(),
+                        importedTask.getId().toString()
+                )
+                .doesNotContain("Old project");
+
+        assertThat(errContent.toString()).isEmpty();
+    }
+    
+    @Test
+    void importedWorkspaceRemainsActiveWhenSavedAgain() {
+        Path sourceDirectory = tempDir.resolve("save-source");
+        Path archive = tempDir.resolve("save-import.zip");
+
+        CsvStorageManager sourceStorage = new CsvStorageManager(sourceDirectory);
+
+        var sourceProjects = new InMemoryProjectRepository();
+        var sourceTasks = new InMemoryTaskRepository();
+
+        ProjectService sourceProjectService =
+                new ProjectService(sourceProjects, sourceTasks);
+
+        sourceProjectService.createProject("Imported project", "");
+
+        sourceStorage.save(sourceProjects, sourceTasks);
+        sourceStorage.exportArchive(archive);
+
+        cli.executeLine("workspace import \"" + archive + "\"");
+
+        cli.executeLine("project add \"Created after import\" \"New data\"");
+
+        cli.saveWorkspace();
+
+        CsvStorageManager persistedStorage =
+                new CsvStorageManager(tempDir);
+
+        CsvStorageManager.LoadedWorkspace persisted =
+                persistedStorage.load();
+
+        assertThat(persisted.projectRepository().findAll())
+                .extracting(project -> project.getName())
+                .containsExactlyInAnyOrder( "Imported project",  "Created after import");
+    }
+    
+    @Test
+    void workspaceImportCommandReportsMissingArchive() {
+        Path missingArchive = tempDir.resolve("missing.zip");
+
+        cli.executeLine("workspace import \"" + missingArchive + "\"");
+
+        assertThat(errContent.toString())
+                .contains("Workspace archive does not exist");
+
+        assertThat(outContent.toString())
+                .doesNotContain("Workspace imported from:");
     }
 }
