@@ -62,13 +62,11 @@ final class CsvWorkspaceUnitOfWork implements IWorkspaceUnitOfWork {
     public void commit() {
         requireActive();
 
-        if (!hasChanges()) {
-            state = WorkspaceUnitOfWorkState.COMMITTED;
-            return;
-        }
-
         try {
-            storageManager.commitAtomically(projectRepository, taskRepository);
+            storageManager.commitAtomically(
+                    projectRepository,
+                    taskRepository
+            );
             state = WorkspaceUnitOfWorkState.COMMITTED;
         } catch (RuntimeException exception) {
             state = WorkspaceUnitOfWorkState.FAILED;
