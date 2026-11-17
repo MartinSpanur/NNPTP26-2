@@ -2,6 +2,7 @@ package cz.upce.fei.nnptp.taskpulse.storage.csv;
 
 import cz.upce.fei.nnptp.taskpulse.domain.Project;
 import cz.upce.fei.nnptp.taskpulse.domain.Task;
+import cz.upce.fei.nnptp.taskpulse.storage.IWorkspaceUnitOfWork;
 import cz.upce.fei.nnptp.taskpulse.storage.InMemoryProjectRepository;
 import cz.upce.fei.nnptp.taskpulse.storage.InMemoryTaskRepository;
 import cz.upce.fei.nnptp.taskpulse.storage.ProjectRepository;
@@ -32,23 +33,66 @@ public class CsvStorageManager {
     private final ProjectCsvMapper projectMapper = new ProjectCsvMapper();
     private final TaskCsvMapper taskMapper = new TaskCsvMapper();
     private final WorklogCsvMapper worklogMapper = new WorklogCsvMapper();
+    private final WorkspaceSnapshotFactory snapshotFactory =
+            new WorkspaceSnapshotFactory(projectMapper, taskMapper, worklogMapper);
+    private final WorkspaceChangeDetector changeDetector = new WorkspaceChangeDetector();
+    private final WorkspaceFileOperations fileOperations;
 
     public CsvStorageManager(Path dataDirectory) {
-        this.dataDirectory = Objects.requireNonNull(dataDirectory, "Data directory must not be null");
+        this(dataDirectory, new WorkspaceFileOperations());
     }
 
-    public record LoadedWorkspace(ProjectRepository projectRepository, TaskRepository taskRepository) {}
+    CsvStorageManager(
+        Path dataDirectory,
+        WorkspaceFileOperations fileOperations
+    ) {
+        this.dataDirectory = Objects.requireNonNull(
+                dataDirectory,
+                "Data directory must not be null"
+        ).toAbsolutePath().normalize();
 
-    public LoadedWorkspace load() {
+        this.fileOperations = Objects.requireNonNull(
+                fileOperations,
+                "File operations must not be null"
+        );
+    }
+
+    private record LoadedWorkspace(ProjectRepository projectRepository, TaskRepository taskRepository) {}
+
+    public IWorkspaceUnitOfWork openUnitOfWork() {
+        LoadedWorkspace workspace = loadWorkspace();
+        WorkspaceSnapshot originalSnapshot = snapshotFactory.create(
+                workspace.projectRepository(),
+                workspace.taskRepository()
+        );
+
+        return new CsvWorkspaceUnitOfWork(
+                this,
+                workspace.projectRepository(),
+                workspace.taskRepository(),
+                snapshotFactory,
+                changeDetector,
+                originalSnapshot
+        );
+    }
+
+    private LoadedWorkspace loadWorkspace() {
+        return loadWorkspaceFrom(dataDirectory);
+    }
+
+    private LoadedWorkspace loadWorkspaceFrom(Path sourceDirectory) {
         InMemoryProjectRepository projectRepo = new InMemoryProjectRepository();
         InMemoryTaskRepository taskRepo = new InMemoryTaskRepository();
 
-        if (!Files.exists(dataDirectory)) {
+        if (!Files.exists(sourceDirectory)) {
             return new LoadedWorkspace(projectRepo, taskRepo);
+        }
+        if (!Files.isDirectory(sourceDirectory)) {
+            throw new StorageException("Workspace path is not a directory: " + sourceDirectory);
         }
 
         Set<UUID> projectIds = new HashSet<>();
-        readAll(projectMapper, project -> {
+        readAll(sourceDirectory, projectMapper, project -> {
             if (!projectIds.add(project.getId())) {
                 throw new StorageException("Duplicate project id detected: " + project.getId());
             }
@@ -56,7 +100,7 @@ public class CsvStorageManager {
         });
 
         Map<UUID, Task> tasksById = new HashMap<>();
-        readAll(taskMapper, task -> {
+        readAll(sourceDirectory, taskMapper, task -> {
             if (!projectIds.contains(task.getProjectId())) {
                 throw new StorageException("Task references missing project: " + task.getProjectId());
             }
@@ -66,7 +110,7 @@ public class CsvStorageManager {
             taskRepo.save(task);
         });
 
-        readAll(worklogMapper, taskWorklog -> {
+        readAll(sourceDirectory, worklogMapper, taskWorklog -> {
             Task task = tasksById.get(taskWorklog.taskId());
             if (task == null) {
                 throw new StorageException("Worklog references missing task: " + taskWorklog.taskId());
@@ -77,7 +121,145 @@ public class CsvStorageManager {
         return new LoadedWorkspace(projectRepo, taskRepo);
     }
 
-    public void save(ProjectRepository projectRepository, TaskRepository taskRepository) {
+    void commitAtomically(
+        ProjectRepository projectRepository,
+        TaskRepository taskRepository
+    ) {
+        Objects.requireNonNull(
+                projectRepository,
+                "Project repository must not be null"
+        );
+        Objects.requireNonNull(
+                taskRepository,
+                "Task repository must not be null"
+        );
+
+        Path stagingDirectory = siblingDirectory("stage");
+        Path backupDirectory = siblingDirectory("backup");
+
+        boolean liveWorkspaceMoved = false;
+        boolean newWorkspaceActivated = false;
+
+        try {
+            writeWorkspace(
+                    stagingDirectory,
+                    projectRepository,
+                    taskRepository
+            );
+
+            validateWorkspace(stagingDirectory);
+
+            if (Files.exists(dataDirectory)) {
+                fileOperations.moveAtomically(
+                        dataDirectory,
+                        backupDirectory
+                );
+                liveWorkspaceMoved = true;
+            }
+
+            fileOperations.moveAtomically(
+                    stagingDirectory,
+                    dataDirectory
+            );
+            newWorkspaceActivated = true;
+        } catch (Exception commitFailure) {
+            StorageException failure = asStorageException(
+                    "Failed to commit workspace atomically",
+                    commitFailure
+            );
+
+            try {
+                fileOperations.deleteDirectoryIfExists(
+                        stagingDirectory
+                );
+
+                if (liveWorkspaceMoved
+                        && !newWorkspaceActivated) {
+
+                    fileOperations.deleteDirectoryIfExists(
+                            dataDirectory
+                    );
+
+                    fileOperations.moveAtomically(
+                            backupDirectory,
+                            dataDirectory
+                    );
+                }
+            } catch (Exception rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+
+            throw failure;
+        }
+
+        try {
+            fileOperations.deleteDirectoryIfExists(
+                    backupDirectory
+            );
+        } catch (IOException cleanupFailure) {
+            throw new StorageException(
+                    "Workspace was committed, but its backup "
+                            + "could not be deleted: "
+                            + backupDirectory,
+                    cleanupFailure
+            );
+        }
+    }
+
+    void restoreRepositories(
+            WorkspaceSnapshot snapshot,
+            ProjectRepository projectRepository,
+            TaskRepository taskRepository
+    ) {
+        Objects.requireNonNull(snapshot, "Workspace snapshot must not be null");
+        Objects.requireNonNull(projectRepository, "Project repository must not be null");
+        Objects.requireNonNull(taskRepository, "Task repository must not be null");
+
+        taskRepository.findAll().stream()
+                .map(Task::getId)
+                .toList()
+                .forEach(taskRepository::deleteById);
+
+        projectRepository.findAll().stream()
+                .map(Project::getId)
+                .toList()
+                .forEach(projectRepository::deleteById);
+
+        Map<UUID, Task> restoredTasks = new HashMap<>();
+
+        for (List<String> fields : snapshot.projectRows().values()) {
+            Project project = projectMapper.fromRecord(snapshotRecord(projectMapper, fields));
+            projectRepository.save(project);
+        }
+
+        for (List<String> fields : snapshot.taskRows().values()) {
+            Task task = taskMapper.fromRecord(snapshotRecord(taskMapper, fields));
+            taskRepository.save(task);
+            restoredTasks.put(task.getId(), task);
+        }
+
+        for (List<List<String>> taskWorklogRows : snapshot.worklogRowsByTaskId().values()) {
+            for (List<String> fields : taskWorklogRows) {
+                WorklogCsvMapper.TaskWorklog taskWorklog =
+                        worklogMapper.fromRecord(snapshotRecord(worklogMapper, fields));
+                Task task = restoredTasks.get(taskWorklog.taskId());
+                if (task == null) {
+                    throw new StorageException(
+                            "Snapshot worklog references missing task: " + taskWorklog.taskId()
+                    );
+                }
+                task.restoreWorklog(taskWorklog.worklog());
+            }
+        }
+    }
+
+    private void writeWorkspace(
+            Path targetDirectory,
+            ProjectRepository projectRepository,
+            TaskRepository taskRepository
+    ) throws IOException {
+        Files.createDirectories(targetDirectory);
+
         List<Project> projects = projectRepository.findAll();
         List<Task> tasks = taskRepository.findAll();
         Iterable<WorklogCsvMapper.TaskWorklog> worklogs = () -> tasks.stream()
@@ -85,21 +267,40 @@ public class CsvStorageManager {
                         .map(worklog -> new WorklogCsvMapper.TaskWorklog(task.getId(), worklog)))
                 .iterator();
 
-        try {
-            Files.createDirectories(dataDirectory);
-            writeAll(projectMapper, projects);
-            writeAll(taskMapper, tasks);
-            writeAll(worklogMapper, worklogs);
-        } catch (IOException e) {
-            throw new StorageException("Failed to save workspace to CSV: " + e.getMessage(), e);
-        }
+        writeAll(targetDirectory, projectMapper, projects);
+        writeAll(targetDirectory, taskMapper, tasks);
+        writeAll(targetDirectory, worklogMapper, worklogs);
     }
 
-    private <T> void readAll(CsvEntityMapper<T> mapper, Consumer<T> consumer) {
-        Path path = dataDirectory.resolve(mapper.fileName());
+    private void validateWorkspace(Path workspaceDirectory) {
+        loadWorkspaceFrom(workspaceDirectory);
+    }
+
+    private Path siblingDirectory(String purpose) {
+        Path parent = dataDirectory.getParent();
+
+        if (parent == null) {
+            throw new StorageException("Workspace directory must have a parent: " + dataDirectory);
+        }
+
+        String workspaceName =
+                dataDirectory.getFileName().toString();
+
+        return parent.resolve(
+                workspaceName + "." + purpose + "-" + UUID.randomUUID()
+        );
+    }
+
+    private <T> void readAll(
+            Path sourceDirectory,
+            CsvEntityMapper<T> mapper,
+            Consumer<T> consumer
+    ) {
+        Path path = sourceDirectory.resolve(mapper.fileName());
         if (!Files.exists(path)) {
             return;
         }
+
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             List<List<String>> rows = CsvUtils.parse(reader);
             for (int i = 1; i < rows.size(); i++) {
@@ -115,14 +316,29 @@ public class CsvStorageManager {
         }
     }
 
-    private <T> void writeAll(CsvEntityMapper<T> mapper, Iterable<T> values) throws IOException {
-        Path path = dataDirectory.resolve(mapper.fileName());
+    private <T> void writeAll(
+            Path targetDirectory,
+            CsvEntityMapper<T> mapper,
+            Iterable<T> values
+    ) throws IOException {
+        Path path = targetDirectory.resolve(mapper.fileName());
         try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
             writeLine(writer, mapper.columns());
             for (T value : values) {
                 writeLine(writer, mapper.toFields(value));
             }
         }
+    }
+
+    private <T> CsvRecord snapshotRecord(CsvEntityMapper<T> mapper, List<String> fields) {
+        return new CsvRecord(mapper.fileName(), mapper.columns(), fields, 1);
+    }
+
+    private static StorageException asStorageException(String message, Exception cause) {
+        if (cause instanceof StorageException storageException) {
+            return storageException;
+        }
+        return new StorageException(message + ": " + cause.getMessage(), cause);
     }
 
     private static void writeLine(BufferedWriter writer, List<String> fields) throws IOException {
