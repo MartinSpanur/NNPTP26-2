@@ -6,7 +6,9 @@ import cz.upce.fei.nnptp.taskpulse.storage.TaskRepository;
 import cz.upce.fei.nnptp.taskpulse.storage.WorkspaceChangeSet;
 
 import java.util.Objects;
-
+/**
+ * Coordinates change tracking, atomic persistence, and rollback for a CSV workspace.
+ */
 final class CsvWorkspaceUnitOfWork implements IWorkspaceUnitOfWork {
     private final CsvStorageManager storageManager;
     private final ProjectRepository projectRepository;

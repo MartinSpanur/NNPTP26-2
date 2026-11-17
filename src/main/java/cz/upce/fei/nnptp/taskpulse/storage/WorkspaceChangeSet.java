@@ -2,7 +2,9 @@ package cz.upce.fei.nnptp.taskpulse.storage;
 
 import java.util.Set;
 import java.util.UUID;
-
+/**
+ * Contains the identifiers of projects and tasks created, modified, or deleted in a workspace.
+ */
 public record WorkspaceChangeSet(
         Set<UUID> createdProjectIds,
         Set<UUID> modifiedProjectIds,

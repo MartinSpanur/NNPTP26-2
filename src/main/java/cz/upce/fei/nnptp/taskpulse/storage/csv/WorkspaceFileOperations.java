@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.stream.Stream;
-
+/**
+ * Provides atomic directory movement and recursive cleanup operations for workspace commits.
+ */
 class WorkspaceFileOperations {
 
     void moveAtomically(Path source, Path target) throws IOException {

@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-
+/**
+ * Creates workspace snapshots from the current project and task repositories.
+ */
 final class WorkspaceSnapshotFactory {
     private final ProjectCsvMapper projectMapper;
     private final TaskCsvMapper taskMapper;
