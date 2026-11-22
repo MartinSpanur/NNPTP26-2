@@ -2,11 +2,13 @@ package cz.upce.fei.nnptp.taskpulse.cli;
 
 import cz.upce.fei.nnptp.taskpulse.service.ProjectService;
 import cz.upce.fei.nnptp.taskpulse.service.TaskService;
+import cz.upce.fei.nnptp.taskpulse.storage.csv.WorkspaceBackup;
 
 import java.io.PrintStream;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
@@ -40,6 +42,12 @@ public class TaskPulseCli {
         this(projectService, taskService, System.out, System.err);
     }
 
+    public TaskPulseCli(ProjectService projectService, TaskService taskService,
+                        WorkspaceBackup backup, PrintStream out, PrintStream err) {
+        this(projectService, taskService, out, err);
+        handlers.put("workspace", new WorkspaceCliHandler(backup, out));
+    }
+
     public void runInteractive(Scanner scanner) {
         out.println("TaskPulse CLI — type 'help' for commands, 'exit' to quit.");
         while (scanner.hasNextLine()) {
@@ -68,7 +76,7 @@ public class TaskPulseCli {
             return true;
         }
 
-        String command = tokens.get(0).toLowerCase();
+        String command = tokens.get(0).toLowerCase(Locale.ROOT);
         if (command.equals("exit") || command.equals("quit")) {
             return false;
         }
@@ -98,10 +106,11 @@ public class TaskPulseCli {
         out.println("  project show <project-id>");
         out.println("  project edit <project-id> <name> [description]");
         out.println("  project delete <project-id>");
-        out.println("  task add <project-id> <title> [description]");
+        out.println("  task add <project-id> <title> [description] [--priority <priority>] [--estimate <minutes>] [--due <YYYY-MM-DD>]");
         out.println("  task list [--project <id>] [--state <state>] [--priority <priority>] [--label <label>]"
                 + " [--search <text>] [--overdue] [--exceeded [<minutes>]] [--sort <title|priority|duedate|priority-duedate>]"
                 + " [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>]");
+        out.println("  task update <task-id> [--title <title>] [--description <text>] [--priority <priority>] [--estimate <minutes|none>] [--due <YYYY-MM-DD|none>]");
         out.println("  task show <task-id>");
         out.println("  task transition <task-id> <state>");
         out.println("  task label add <task-id> <label>");
@@ -111,6 +120,8 @@ public class TaskPulseCli {
         out.println("  worklog list <task-id>");
         out.println("  " + ReportCliHandler.USAGE);
         out.println("    Without --output, prints to the console. Existing files are never overwritten.");
+        out.println("  workspace export <archive.zip>");
+        out.println("  workspace import <archive.zip|csv-directory> (replaces current workspace)");
         out.println("  exit / quit");
     }
 

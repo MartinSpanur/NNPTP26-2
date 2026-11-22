@@ -42,7 +42,10 @@ class MarkdownReportExporterTest {
         assertThat(report).contains("| DONE | 0 |");
         assertThat(report).contains("| Overdue | 0 |");
         assertThat(report).contains("| Total recorded minutes | 0 |");
-        assertThat(report).contains("| ID | Title | State | Priority | Due date | Estimate (min) | Recorded (min) |");
+        assertThat(report).contains("| Total estimated minutes | 0 |");
+        assertThat(report).contains("| Total variance minutes | 0 |");
+        assertThat(report).contains(
+                "| ID | Title | State | Priority | Due date | Estimate (min) | Recorded (min) | Variance (min) |");
         assertThat(countDataRows(report)).isZero();
     }
 
@@ -77,10 +80,12 @@ class MarkdownReportExporterTest {
         assertThat(report).contains("| DONE | 1 |");
         assertThat(report).contains("| Overdue | 1 |");
         assertThat(report).contains("| Total recorded minutes | 90 |");
+        assertThat(report).contains("| Total estimated minutes | 120 |");
+        assertThat(report).contains("| Total variance minutes | -30 |");
 
-        assertThat(report).contains("| aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa | Write tests | TODO | HIGH | 2026-11-10 | - | 0 |");
-        assertThat(report).contains("| bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | Domain model | DONE | MEDIUM | 2026-10-01 | 0 | 60 |");
-        assertThat(report).contains("| cccccccc-cccc-cccc-cccc-cccccccccccc | Fix CSV | IN_PROGRESS | CRITICAL | 2026-11-01 | 120 | 30 |");
+        assertThat(report).contains("| aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa | Write tests | TODO | HIGH | 2026-11-10 | - | 0 | - |");
+        assertThat(report).contains("| bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb | Domain model | DONE | MEDIUM | 2026-10-01 | 0 | 60 | 60 |");
+        assertThat(report).contains("| cccccccc-cccc-cccc-cccc-cccccccccccc | Fix CSV | IN_PROGRESS | CRITICAL | 2026-11-01 | 120 | 30 | -90 |");
     }
 
     @Test
@@ -88,6 +93,30 @@ class MarkdownReportExporterTest {
         assertThat(MarkdownReportExporter.formatEstimate(null)).isEqualTo("-");
         assertThat(MarkdownReportExporter.formatEstimate(0)).isEqualTo("0");
         assertThat(MarkdownReportExporter.formatEstimate(45)).isEqualTo("45");
+    }
+
+    @Test
+    void unestimatedTasksAreExcludedFromVarianceTotals() {
+        UUID projectId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID taskId = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        Project project = new Project(projectId, "Unestimated only", "");
+        Task unestimated = new Task(taskId, projectId, "No estimate", "", Priority.MEDIUM, TaskState.IN_PROGRESS,
+                null, null, null, null);
+        unestimated.restoreWorklog(new Worklog(LocalDateTime.of(2026, 11, 3, 8, 0), 90, "dev", ""));
+
+        String report = exporter.export(project, List.of(unestimated), asOfDate);
+
+        assertThat(report).contains("| Total recorded minutes | 90 |");
+        assertThat(report).contains("| Total estimated minutes | 0 |");
+        assertThat(report).contains("| Total variance minutes | 0 |");
+        assertThat(report).contains("| dddddddd-dddd-dddd-dddd-dddddddddddd | No estimate | IN_PROGRESS | MEDIUM | - | - | 90 | - |");
+    }
+
+    @Test
+    void varianceDistinguishesMissingEstimateFromZeroVariance() {
+        assertThat(MarkdownReportExporter.formatVariance(null)).isEqualTo("-");
+        assertThat(MarkdownReportExporter.formatVariance(0L)).isEqualTo("0");
+        assertThat(MarkdownReportExporter.formatVariance(-90L)).isEqualTo("-90");
     }
 
     @Test

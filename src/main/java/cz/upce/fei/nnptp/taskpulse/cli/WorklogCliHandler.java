@@ -5,6 +5,7 @@ import cz.upce.fei.nnptp.taskpulse.domain.Worklog;
 import cz.upce.fei.nnptp.taskpulse.service.TaskService;
 import java.io.PrintStream;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 final class WorklogCliHandler implements CliCommandHandler {
@@ -25,7 +26,7 @@ final class WorklogCliHandler implements CliCommandHandler {
             return;
         }
 
-        String action = args.get(0).toLowerCase();
+        String action = args.get(0).toLowerCase(Locale.ROOT);
         switch (action) {
             case "log" -> {
                 if (args.size() < 3) {

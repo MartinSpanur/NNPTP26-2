@@ -28,22 +28,71 @@ final class TaskCliHandler implements CliCommandHandler {
     @Override
     public void handle(List<String> args) {
         if (args.isEmpty()) {
-            err.println("Usage: task <add|list|show|transition|label|delete> [arguments]");
+            err.println("Usage: task <add|update|list|show|transition|label|delete> [arguments]");
             return;
         }
 
-        String action = args.get(0).toLowerCase();
+        String action = args.get(0).toLowerCase(Locale.ROOT);
         switch (action) {
             case "add" -> {
                 if (args.size() < 3) {
-                    err.println("Usage: task add <project-id> <title> [description]");
+                    err.println("Usage: task add <project-id> <title> [description] [--priority <priority>] [--estimate <minutes>] [--due <YYYY-MM-DD>]");
                     return;
                 }
                 UUID projectId = TaskPulseCli.parseUuid(args.get(1));
                 String title = args.get(2);
-                String desc = args.size() > 3 ? args.get(3) : "";
-                Task task = taskService.createTask(projectId, title, desc, Priority.MEDIUM, null, null);
+                int i = 3;
+                String desc = "";
+                if (i < args.size() && !args.get(i).startsWith("--")) {
+                    desc = args.get(i++);
+                }
+                Priority priority = Priority.MEDIUM;
+                Integer estimate = null;
+                LocalDate dueDate = null;
+                for (; i < args.size(); i += 2) {
+                    String option = args.get(i).toLowerCase(Locale.ROOT);
+                    switch (option) {
+                        case "--priority" -> priority = parsePriority(optionValue(args, i, option));
+                        case "--estimate" -> estimate = parseEstimate(optionValue(args, i, option));
+                        case "--due" -> dueDate = parseDate(optionValue(args, i, option));
+                        default -> throw new IllegalArgumentException("Unknown task add option: '" + args.get(i) + "'");
+                    }
+                }
+                Task task = taskService.createTask(projectId, title, desc, priority, estimate, dueDate);
                 out.println("Task created: " + task.getId() + " - " + task.getTitle());
+            }
+            case "update" -> {
+                if (args.size() < 4) {
+                    err.println("Usage: task update <task-id> <--title|--description|--priority|--estimate|--due> <value> [...]");
+                    return;
+                }
+                UUID id = TaskPulseCli.parseUuid(args.get(1));
+                Task existing = taskService.getTask(id);
+                String title = existing.getTitle();
+                String description = existing.getDescription();
+                Priority priority = existing.getPriority();
+                Integer estimate = existing.getEstimatedMinutes();
+                LocalDate dueDate = existing.getDueDate();
+                for (int i = 2; i < args.size(); i += 2) {
+                    String option = args.get(i).toLowerCase(Locale.ROOT);
+                    if (!List.of("--title", "--description", "--priority", "--estimate", "--due").contains(option)) {
+                        throw new IllegalArgumentException("Unknown task update option: '" + args.get(i) + "'");
+                    }
+                    if (i + 1 >= args.size() || args.get(i + 1).startsWith("--")) {
+                        throw new IllegalArgumentException("Missing value for " + option);
+                    }
+                    String value = args.get(i + 1);
+                    switch (option) {
+                        case "--title" -> title = value;
+                        case "--description" -> description = value;
+                        case "--priority" -> priority = parsePriority(value);
+                        case "--estimate" -> estimate = parseEstimate(value);
+                        case "--due" -> dueDate = value.equalsIgnoreCase("none") ? null : parseDate(value);
+                        default -> throw new IllegalStateException("Unexpected option: " + option);
+                    }
+                }
+                Task updated = taskService.updateTask(id, title, description, priority, estimate, dueDate);
+                out.println("Task updated: " + updated.getId() + " - " + updated.getTitle());
             }
             case "list" -> {
                 CliOptions options = CliOptions.parse(args, 1);
@@ -129,7 +178,7 @@ final class TaskCliHandler implements CliCommandHandler {
                     err.println("Usage: task label <add|remove> <task-id> <label>");
                     return;
                 }
-                String sub = args.get(1).toLowerCase();
+                String sub = args.get(1).toLowerCase(Locale.ROOT);
                 UUID id = TaskPulseCli.parseUuid(args.get(2));
                 String label = args.get(3);
                 if ("add".equals(sub)) {
@@ -163,6 +212,24 @@ final class TaskCliHandler implements CliCommandHandler {
             throw new IllegalArgumentException("--exceeded expects a whole number of minutes, got '" + value + "'");
         }
     }
+    private static String optionValue(List<String> args, int optionIndex, String option) {
+        if (optionIndex + 1 >= args.size() || args.get(optionIndex + 1).startsWith("--")) {
+            throw new IllegalArgumentException("Missing value for " + option);
+        }
+        return args.get(optionIndex + 1);
+    }
+
+    private Integer parseEstimate(String value) {
+        if (value.equalsIgnoreCase("none")) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid estimate: '" + value + "'. Expected whole minutes or none");
+        }
+    }
+
     private LocalDate parseDate(String val) {
         try {
             return LocalDate.parse(val.strip());
@@ -188,7 +255,7 @@ final class TaskCliHandler implements CliCommandHandler {
     }
 
     private TaskSortOrder parseSortOrder(String val) {
-        return switch (val.strip().toLowerCase()) {
+        return switch (val.strip().toLowerCase(Locale.ROOT)) {
             case "title" -> TaskSortOrder.TITLE_ASC;
             case "priority" -> TaskSortOrder.PRIORITY_DESC;
             case "duedate" -> TaskSortOrder.DUE_DATE_ASC;

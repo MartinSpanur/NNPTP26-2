@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public final class CsvUtils {
+    private static final int END_OF_STREAM = -1;
+
     private CsvUtils() {
     }
 
@@ -37,10 +39,9 @@ public final class CsvUtils {
         StringBuilder currentField = new StringBuilder();
 
         boolean inQuotes = false;
-        int prev = -1;
         int current;
 
-        while ((current = bufferedReader.read()) != -1) {
+        while ((current = bufferedReader.read()) != END_OF_STREAM) {
             char ch = (char) current;
 
             if (inQuotes) {
@@ -51,7 +52,7 @@ public final class CsvUtils {
                         currentField.append('\"');
                     } else {
                         inQuotes = false;
-                        if (next != -1) {
+                        if (next != END_OF_STREAM) {
                             bufferedReader.reset();
                         }
                     }
@@ -67,7 +68,7 @@ public final class CsvUtils {
                 } else if (ch == '\r') {
                     bufferedReader.mark(1);
                     int next = bufferedReader.read();
-                    if (next != '\n' && next != -1) {
+                    if (next != '\n' && next != END_OF_STREAM) {
                         bufferedReader.reset();
                     }
                     currentRow.add(currentField.toString());
@@ -83,9 +84,8 @@ public final class CsvUtils {
                     currentField.append(ch);
                 }
             }
-            prev = current;
         }
-        
+
         if (inQuotes) {
             throw new StorageException("Invalid CSV: unclosed double quote at end of file");
         }

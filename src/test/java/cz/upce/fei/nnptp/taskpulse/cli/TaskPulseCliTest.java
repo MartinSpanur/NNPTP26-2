@@ -50,7 +50,7 @@ class TaskPulseCliTest {
     void helpCommandDisplaysAvailableCommands() {
         boolean continueRunning = cli.executeLine("help");
         assertThat(continueRunning).isTrue();
-        assertThat(outContent.toString()).contains("Available commands:", "project add", "task add", "worklog log",
+        assertThat(outContent.toString()).contains("Available commands:", "project add", "task add", "task update", "worklog log",
                 "--exceeded [<minutes>]");
     }
 
@@ -76,6 +76,153 @@ class TaskPulseCliTest {
     }
 
     @Test
+    void taskUpdateChangesOnlyProvidedFields() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Keep description", Priority.HIGH, 30,
+                LocalDate.of(2026, 12, 1));
+
+        cli.executeLine("task update " + task.getId() + " --title \"Changed title\" --estimate 45");
+
+        Task updated = taskService.getTask(task.getId());
+        assertThat(errContent.toString()).isEmpty();
+        assertThat(outContent.toString()).contains("Task updated:");
+        assertThat(updated.getTitle()).isEqualTo("Changed title");
+        assertThat(updated.getDescription()).isEqualTo("Keep description");
+        assertThat(updated.getPriority()).isEqualTo(Priority.HIGH);
+        assertThat(updated.getEstimatedMinutes()).isEqualTo(45);
+        assertThat(updated.getDueDate()).isEqualTo(LocalDate.of(2026, 12, 1));
+    }
+
+    @Test
+    void taskUpdateRejectsInvalidValuesWithoutPartialChanges() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --title Changed --estimate -5");
+
+        assertThat(errContent.toString()).contains("Estimated minutes cannot be negative");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+        assertThat(taskService.getTask(task.getId()).getEstimatedMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    void taskUpdateRejectsBlankTitleWithoutModifyingTask() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --title \"   \" --priority low");
+
+        assertThat(errContent.toString()).contains("Task title must not be blank");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+        assertThat(taskService.getTask(task.getId()).getPriority()).isEqualTo(Priority.HIGH);
+    }
+
+    @Test
+    void taskUpdateCanClearOptionalEstimateAndDueDate() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30,
+                LocalDate.of(2026, 12, 1));
+
+        cli.executeLine("task update " + task.getId() + " --estimate none --due none");
+
+        assertThat(errContent.toString()).isEmpty();
+        assertThat(taskService.getTask(task.getId()).getEstimatedMinutes()).isNull();
+        assertThat(taskService.getTask(task.getId()).getDueDate()).isNull();
+    }
+
+    @Test
+    void taskUpdateRejectsUnknownOrIncompleteOptions() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "", Priority.MEDIUM, null, null);
+
+        cli.executeLine("task update " + task.getId() + " --bogus value");
+        assertThat(errContent.toString()).contains("Unknown task update option");
+        errContent.reset();
+
+        cli.executeLine("task update " + task.getId() + " --priority --title Changed");
+        assertThat(errContent.toString()).contains("Missing value for --priority");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+    }
+
+
+    @Test
+    void taskWithoutSubcommandDisplaysUsage() {
+        cli.executeLine("task");
+        assertThat(errContent.toString()).contains("Usage: task <add|update|list|show|transition|label|delete>");
+    }
+
+    @Test
+    void taskUpdateWithoutRequiredArgumentsDisplaysUsage() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update");
+        assertThat(errContent.toString()).contains("Usage: task update");
+        errContent.reset();
+        cli.executeLine("task update " + task.getId());
+        assertThat(errContent.toString()).contains("Usage: task update");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+    }
+
+    @Test
+    void taskUpdateChangesDescriptionAndSetsDueDate() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Old description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId()
+                + " --description \"New description\" --due 2026-12-15");
+
+        assertThat(errContent.toString()).isEmpty();
+        Task updated = taskService.getTask(task.getId());
+        assertThat(updated.getDescription()).isEqualTo("New description");
+        assertThat(updated.getDueDate()).isEqualTo(LocalDate.of(2026, 12, 15));
+        assertThat(updated.getTitle()).isEqualTo("Original");
+        assertThat(updated.getPriority()).isEqualTo(Priority.HIGH);
+        assertThat(updated.getEstimatedMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    void taskUpdateRejectsNonNumericEstimateWithoutChangingTask() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --title Changed --estimate abc");
+
+        assertThat(errContent.toString()).contains("Invalid estimate");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+        assertThat(taskService.getTask(task.getId()).getEstimatedMinutes()).isEqualTo(30);
+    }
+
+    @Test
+    void taskUpdateRejectsMalformedDateAndInvalidPriority() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --due invalid-date");
+        assertThat(errContent.toString()).contains("Invalid date");
+        errContent.reset();
+
+        cli.executeLine("task update " + task.getId() + " --priority INVALID");
+        assertThat(errContent.toString()).contains("Invalid priority");
+        assertThat(taskService.getTask(task.getId()).getDueDate()).isNull();
+        assertThat(taskService.getTask(task.getId()).getPriority()).isEqualTo(Priority.HIGH);
+    }
+
+    @Test
+    void taskUpdateRejectsMissingOptionValueAtEnd() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --due");
+        assertThat(errContent.toString()).contains("Usage: task update");
+        errContent.reset();
+
+        cli.executeLine("task update " + task.getId() + " --title Changed --due");
+        assertThat(errContent.toString()).contains("Missing value for --due");
+        assertThat(taskService.getTask(task.getId()).getTitle()).isEqualTo("Original");
+    }
+
+    @Test
     void exitCommandReturnsFalse() {
         boolean continueRunning = cli.executeLine("exit");
         assertThat(continueRunning).isFalse();
@@ -92,6 +239,36 @@ class TaskPulseCliTest {
         outContent.reset();
         cli.executeLine("project list");
         assertThat(outContent.toString()).contains("Programming Course", "Semester project");
+    }
+
+    @Test
+    void projectEditWithoutDescriptionKeepsExistingDescription() {
+        UUID projectId = projectService.createProject("Course", "Semester project").getId();
+
+        cli.executeLine("project edit " + projectId + " \"Renamed course\"");
+
+        var project = projectService.getProject(projectId);
+        assertThat(project.getName()).isEqualTo("Renamed course");
+        assertThat(project.getDescription()).isEqualTo("Semester project");
+        assertThat(outContent.toString()).contains("Project updated:", "Renamed course");
+    }
+
+    @Test
+    void projectEditWithDescriptionReplacesIt() {
+        UUID projectId = projectService.createProject("Course", "Semester project").getId();
+
+        cli.executeLine("project edit " + projectId + " Course \"Final exam\"");
+
+        assertThat(projectService.getProject(projectId).getDescription()).isEqualTo("Final exam");
+    }
+
+    @Test
+    void projectEditWithEmptyDescriptionClearsIt() {
+        UUID projectId = projectService.createProject("Course", "Semester project").getId();
+
+        cli.executeLine("project edit " + projectId + " Course \"\"");
+
+        assertThat(projectService.getProject(projectId).getDescription()).isEmpty();
     }
 
     @Test
@@ -113,6 +290,67 @@ class TaskPulseCliTest {
 
         cli.executeLine("task transition " + taskId + " DONE");
         assertThat(outContent.toString()).contains("transitioned to DONE");
+    }
+
+    @Test
+    void taskAddSetsAttributesFromQuotedCommandLine() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+
+        cli.executeLine("task add " + projectId + " \"Implement parser\" \"RFC 4180, quoted fields\""
+                + " --priority CRITICAL --estimate 120 --due 2026-12-01");
+
+        Task task = taskService.listTasks().get(0);
+        assertThat(task.getTitle()).isEqualTo("Implement parser");
+        assertThat(task.getDescription()).isEqualTo("RFC 4180, quoted fields");
+        assertThat(task.getPriority()).isEqualTo(Priority.CRITICAL);
+        assertThat(task.getEstimatedMinutes()).isEqualTo(120);
+        assertThat(task.getDueDate()).isEqualTo(LocalDate.of(2026, 12, 1));
+    }
+
+    @Test
+    void taskAddWithInvalidOptionReportsErrorAndCreatesNothing() {
+        UUID projectId = projectService.createProject("Course", "").getId();
+
+        cli.executeLine("task add " + projectId + " Parser --due tomorrow");
+
+        assertThat(errContent.toString(StandardCharsets.UTF_8))
+                .contains("Invalid argument: Invalid date: 'tomorrow'")
+                .doesNotContain("Exception");
+        assertThat(taskService.listTasks()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "--author --desc oprava, --author",
+            "--desc --author testautor, --desc",
+            "--author testautor --desc --author jinyautor, --desc"
+    })
+    void worklogRejectsOptionAsValueWithoutLoggingWork(String options, String missingValueOption) {
+        var project = projectService.createProject("Course", "");
+        Task task = taskService.createTask(project.getId(), "Review", "", Priority.MEDIUM, null, null);
+        taskService.transitionTask(task.getId(), TaskState.IN_PROGRESS);
+
+        cli.executeLine("worklog log " + task.getId() + " 30 " + options);
+
+        assertThat(errContent.toString()).contains("Invalid argument: Missing value for option " + missingValueOption);
+        assertThat(outContent.toString()).isEmpty();
+        assertThat(taskService.getTask(task.getId()).getWorklogs()).isEmpty();
+        assertThat(taskService.getTask(task.getId()).getTotalRecordedMinutes()).isZero();
+    }
+
+    @Test
+    void equalsSyntaxAcceptsQuotedSwitchLikeValues() {
+        var project = projectService.createProject("Course", "");
+        Task task = taskService.createTask(project.getId(), "Fix --overdue flag", "", Priority.MEDIUM, null, null);
+        taskService.transitionTask(task.getId(), TaskState.IN_PROGRESS);
+
+        cli.executeLine("worklog log " + task.getId() + " 30 --author Dev --desc=\"--verbose details\"");
+        cli.executeLine("task list --search=\"--overdue flag\"");
+
+        assertThat(taskService.getTask(task.getId()).getWorklogs().get(0).description())
+                .isEqualTo("--verbose details");
+        assertThat(outContent.toString()).contains("Fix --overdue flag");
+        assertThat(errContent.toString()).isEmpty();
     }
 
     @Test
@@ -230,6 +468,23 @@ class TaskPulseCliTest {
     }
 
     @ParameterizedTest
+    @CsvSource({
+            "--priority, Missing value for option --priority",
+            "--from, Missing value for option --from",
+            "--to, Missing value for option --to",
+            "--prioirty HIGH, Unknown option: --prioirty",
+            "--prioirty=HIGH, Unknown option: --prioirty"
+    })
+    void taskListRejectsInvalidOptions(String options, String expectedError) {
+        taskWith45RecordedMinutes(30);
+
+        cli.executeLine("task list " + options);
+
+        assertThat(errContent.toString()).contains(expectedError);
+        assertThat(outContent.toString()).isEmpty();
+    }
+
+    @ParameterizedTest
     @CsvSource({"-1, non-negative", "later, whole number", "9223372036854775808, whole number"})
     void taskListRejectsInvalidVarianceThreshold(String input, String expectedError) {
         cli.executeLine("task list --exceeded " + input);
@@ -243,9 +498,7 @@ class TaskPulseCliTest {
             "--from 2999-01-01, Later;Soon",
             "--to 2999-01-31, Past;Soon",
             "--from 2999-01-01 --to 2999-01-31, Soon",
-            "--from 2999-01-10 --to 2999-01-10, Soon",
-            "--from, None;Past;Soon;Later",
-            "--to, None;Past;Soon;Later"
+            "--from 2999-01-10 --to 2999-01-10, Soon"
     })
     void taskListFiltersByDueDateRange(String options, String expectedTitles) {
         tasksWithDueDates();

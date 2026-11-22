@@ -24,6 +24,8 @@ public final class JsonReportExporter implements ReportExporter {
         StringJoiner taskRows = new StringJoiner(",\n    ", "[\n    ", "\n  ]").setEmptyValue("[]");
         long overdueCount = 0;
         long totalRecordedMinutes = 0;
+        long totalEstimatedMinutes = 0;
+        long totalVarianceMinutes = 0;
         for (Task task : tasks) {
             Objects.requireNonNull(task, "Task must not be null");
             counts.merge(task.getState(), 1L, Long::sum);
@@ -32,6 +34,11 @@ public final class JsonReportExporter implements ReportExporter {
             }
             long recordedMinutes = task.getTotalRecordedMinutes();
             totalRecordedMinutes += recordedMinutes;
+            Long varianceMinutes = task.getVarianceMinutes();
+            if (varianceMinutes != null) {
+                totalEstimatedMinutes += task.getEstimatedMinutes();
+                totalVarianceMinutes += varianceMinutes;
+            }
             taskRows.add(renderTask(task, recordedMinutes));
         }
 
@@ -46,12 +53,15 @@ public final class JsonReportExporter implements ReportExporter {
                   "metrics": {
                     "taskCountsByState": %s,
                     "overdueCount": %s,
-                    "totalRecordedMinutes": %s
+                    "totalRecordedMinutes": %s,
+                    "totalEstimatedMinutes": %s,
+                    "totalVarianceMinutes": %s
                   },
                   "tasks": %s
                 }
                 """.formatted(project.getId(), quote(project.getName()), quote(project.getDescription()),
-                stateCounts, overdueCount, totalRecordedMinutes, taskRows);
+                stateCounts, overdueCount, totalRecordedMinutes, totalEstimatedMinutes, totalVarianceMinutes,
+                taskRows);
     }
 
     private static String renderTask(Task task, long recordedMinutes) {

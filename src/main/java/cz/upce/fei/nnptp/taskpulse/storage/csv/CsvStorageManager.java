@@ -15,6 +15,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -29,6 +30,8 @@ import java.util.function.Consumer;
  * this class is responsible for file I/O and for validating relationships between entities.
  */
 public class CsvStorageManager {
+    private static final String UTF8_BOM = "\uFEFF";
+
     private final Path dataDirectory;
     private final ProjectCsvMapper projectMapper = new ProjectCsvMapper();
     private final TaskCsvMapper taskMapper = new TaskCsvMapper();
@@ -303,6 +306,9 @@ public class CsvStorageManager {
 
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             List<List<String>> rows = CsvUtils.parse(reader);
+            if (!rows.isEmpty()) {
+                validateHeader(mapper, rows.get(0));
+            }
             for (int i = 1; i < rows.size(); i++) {
                 List<String> row = rows.get(i);
                 if (isBlankRow(row)) {
@@ -325,7 +331,7 @@ public class CsvStorageManager {
         try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
             writeLine(writer, mapper.columns());
             for (T value : values) {
-                writeLine(writer, mapper.toFields(value));
+                writeLine(bufferedWriter, mapper.toFields(value));
             }
         }
     }

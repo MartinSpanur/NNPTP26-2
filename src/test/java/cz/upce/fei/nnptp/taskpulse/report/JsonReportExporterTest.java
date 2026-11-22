@@ -30,7 +30,9 @@ class JsonReportExporterTest {
                   "metrics": {
                     "taskCountsByState": {"TODO": 0, "IN_PROGRESS": 0, "BLOCKED": 0, "DONE": 0},
                     "overdueCount": 0,
-                    "totalRecordedMinutes": 0
+                    "totalRecordedMinutes": 0,
+                    "totalEstimatedMinutes": 0,
+                    "totalVarianceMinutes": 0
                   },
                   "tasks": []
                 }
@@ -61,7 +63,9 @@ class JsonReportExporterTest {
                   "metrics": {
                     "taskCountsByState": {"TODO": 1, "IN_PROGRESS": 1, "BLOCKED": 0, "DONE": 1},
                     "overdueCount": 1,
-                    "totalRecordedMinutes": 2500000030
+                    "totalRecordedMinutes": 2500000030,
+                    "totalEstimatedMinutes": 120,
+                    "totalVarianceMinutes": 2499999910
                   },
                   "tasks": [
                     {"id": "%s", "title": "Due today", "state": "TODO", "priority": "MEDIUM", \
@@ -75,6 +79,21 @@ class JsonReportExporterTest {
                 }
                 """.formatted(project.getId(), dueToday.getId(), finished.getId(), overdue.getId()));
         assertThat(finished.getWorklogs()).containsExactly(finishedWork);
+    }
+
+    @Test
+    void unestimatedTasksDoNotContributeToVarianceTotals() {
+        Project project = new Project("Unestimated only");
+        Worklog work = new Worklog(AS_OF_DATE.atStartOfDay(), 90, "dev");
+        Task unestimated = new TaskBuilder(project.getId(), "No estimate")
+                .state(TaskState.IN_PROGRESS).worklogs(List.of(work)).build();
+
+        String report = exporter.export(project, List.of(unestimated), AS_OF_DATE);
+
+        assertThat(report).contains("\"totalRecordedMinutes\": 90");
+        assertThat(report).contains("\"totalEstimatedMinutes\": 0");
+        assertThat(report).contains("\"totalVarianceMinutes\": 0");
+        assertThat(report).contains("\"varianceMinutes\": null");
     }
 
     @Test

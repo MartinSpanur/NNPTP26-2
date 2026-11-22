@@ -6,6 +6,7 @@ import cz.upce.fei.nnptp.taskpulse.domain.TaskState;
 import cz.upce.fei.nnptp.taskpulse.domain.exception.ValidationException;
 
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.UUID;
 
 public record TaskQuery(
@@ -32,7 +33,7 @@ public record TaskQuery(
         } else {
             label = null;
         }
-        textSearch = (textSearch != null && !textSearch.isBlank()) ? textSearch.strip().toLowerCase() : null;
+        textSearch = (textSearch != null && !textSearch.isBlank()) ? textSearch.strip().toLowerCase(Locale.ROOT) : null;
         sortOrder = sortOrder == null ? TaskSortOrder.TITLE_ASC : sortOrder;
     }
 
