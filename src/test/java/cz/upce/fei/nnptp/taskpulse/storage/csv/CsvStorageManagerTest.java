@@ -114,7 +114,7 @@ class CsvStorageManagerTest {
         byte[] originalContent = Files.readAllBytes(source);
         CsvStorageManager storage = new CsvStorageManager(tempDir);
 
-        assertThatThrownBy(storage::load)
+        assertThatThrownBy(() -> load(storage))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Failed to load projects.csv", "Invalid CSV");
         assertThat(Files.readAllBytes(source)).isEqualTo(originalContent);

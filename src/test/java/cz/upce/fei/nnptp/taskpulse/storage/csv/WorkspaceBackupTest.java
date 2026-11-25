@@ -82,7 +82,11 @@ class WorkspaceBackupTest {
         Project originalProject = projects.save(new Project("Keep me", "Original description"));
         Task originalTask = tasks.save(new Task(originalProject.getId(), "Original task"));
         Path source = directory.resolve("invalid-quotes");
-        new CsvStorageManager(source).save(new InMemoryProjectRepository(), new InMemoryTaskRepository());
+        save(
+            new CsvStorageManager(source),
+            new InMemoryProjectRepository(),
+            new InMemoryTaskRepository()
+        );
         Path projectsFile = source.resolve("projects.csv");
         Files.writeString(projectsFile,
                 "id,name,description\n" + java.util.UUID.randomUUID() + "," + name + ",Description\n");
