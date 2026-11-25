@@ -9,12 +9,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /** Transfers complete workspaces using the existing UTF-8 CSV format. */
 public class WorkspaceBackup {
+    private static final String UTF8_BOM = "\uFEFF";
     private static final List<String> FILES = List.of("projects.csv", "tasks.csv", "worklogs.csv");
     private static final List<String> HEADERS = List.of("id,name,description",
             "id,projectId,title,description,priority,state,estimatedMinutes,dueDate,labels",
@@ -24,8 +26,8 @@ public class WorkspaceBackup {
     private final TaskRepository tasks;
 
     public WorkspaceBackup(ProjectRepository projects, TaskRepository tasks) {
-        this.projects = java.util.Objects.requireNonNull(projects);
-        this.tasks = java.util.Objects.requireNonNull(tasks);
+        this.projects = Objects.requireNonNull(projects);
+        this.tasks = Objects.requireNonNull(tasks);
     }
 
     public void exportArchive(Path target) {
@@ -75,7 +77,8 @@ public class WorkspaceBackup {
             }
             for (int i = 0; i < FILES.size(); i++) {
                 try (var reader = Files.newBufferedReader(staging.resolve(FILES.get(i)))) {
-                    if (!HEADERS.get(i).equals(reader.readLine())) {
+                    String header = Objects.toString(reader.readLine(), "").replace(UTF8_BOM, "");
+                    if (!HEADERS.get(i).equals(header)) {
                         throw new StorageException("Invalid CSV header: " + FILES.get(i));
                     }
                 }

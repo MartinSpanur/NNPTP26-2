@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -81,11 +82,48 @@ class WorkspaceBackupTest {
         Path zip = directory.resolve("bad.zip");
         try (var output = new ZipOutputStream(Files.newOutputStream(zip))) {
             output.putNextEntry(new ZipEntry(entry));
-            output.write("id,name,description\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            output.write("id,name,description\n".getBytes(StandardCharsets.UTF_8));
             output.closeEntry();
         }
         assertThatThrownBy(() -> backup.importBundle(zip)).isInstanceOf(StorageException.class);
         assertThat(Files.exists(directory.resolve("escaped.csv"))).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void acceptsCsvFilesWithUtf8ByteOrderMarkInHeaders(boolean archive) throws Exception {
+        Project project = new Project("BOM Project", "Imported with BOM");
+        String projectsCsv = "\uFEFFid,name,description\n"
+                + project.getId() + "," + project.getName() + "," + project.getDescription() + "\n";
+        String tasksCsv = "\uFEFFid,projectId,title,description,priority,state,estimatedMinutes,dueDate,labels\n";
+        String worklogsCsv = "\uFEFFtaskId,timestamp,durationMinutes,author,description\n";
+
+        Path source;
+        if (archive) {
+            source = directory.resolve("bom-backup.zip");
+            try (var zip = new ZipOutputStream(Files.newOutputStream(source))) {
+                zip.putNextEntry(new ZipEntry("projects.csv"));
+                zip.write(projectsCsv.getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+                zip.putNextEntry(new ZipEntry("tasks.csv"));
+                zip.write(tasksCsv.getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+                zip.putNextEntry(new ZipEntry("worklogs.csv"));
+                zip.write(worklogsCsv.getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        } else {
+            source = directory.resolve("bom-bundle");
+            Files.createDirectories(source);
+            Files.writeString(source.resolve("projects.csv"), projectsCsv);
+            Files.writeString(source.resolve("tasks.csv"), tasksCsv);
+            Files.writeString(source.resolve("worklogs.csv"), worklogsCsv);
+        }
+
+        backup.importBundle(source);
+
+        assertThat(projects.findById(project.getId())).isPresent();
+        assertThat(projects.findById(project.getId()).orElseThrow().getName()).isEqualTo("BOM Project");
     }
 
     @Test
