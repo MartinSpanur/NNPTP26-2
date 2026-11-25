@@ -34,7 +34,21 @@ public class WorkspaceBackup {
         Path staging = null;
         try {
             staging = Files.createTempDirectory("taskpulse-backup-");
-            new CsvStorageManager(staging).save(projects, tasks);
+            
+            try (var unitOfWork =
+             new CsvStorageManager(staging).openUnitOfWork()) {
+
+                projects.findAll().forEach(
+                        unitOfWork.projects()::save
+                );
+
+                tasks.findAll().forEach(
+                        unitOfWork.tasks()::save
+                );
+
+                unitOfWork.commit();
+            }
+            
             // CREATE_NEW protects existing backups from accidental overwrites.
             try (var zip = new ZipOutputStream(Files.newOutputStream(target,
                     java.nio.file.StandardOpenOption.CREATE_NEW))) {
@@ -83,11 +97,28 @@ public class WorkspaceBackup {
                     }
                 }
             }
-            var loaded = new CsvStorageManager(staging).load();
+            /*var loaded = new CsvStorageManager(staging).load();
             tasks.findAll().forEach(task -> tasks.deleteById(task.getId()));
             projects.findAll().forEach(project -> projects.deleteById(project.getId()));
             loaded.projectRepository().findAll().forEach(projects::save);
-            loaded.taskRepository().findAll().forEach(tasks::save);
+            loaded.taskRepository().findAll().forEach(tasks::save);*/
+            try (var unitOfWork = new CsvStorageManager(staging).openUnitOfWork()) {
+
+                tasks.findAll().forEach(task ->
+                        tasks.deleteById(task.getId()));
+
+                projects.findAll().forEach(project ->
+                        projects.deleteById(project.getId()));
+
+                unitOfWork.projects()
+                        .findAll()
+                        .forEach(projects::save);
+
+                unitOfWork.tasks()
+                        .findAll()
+                        .forEach(tasks::save);
+            }
+
         } catch (IOException e) {
             throw new StorageException("Failed to import workspace: " + e.getMessage(), e);
         } finally {

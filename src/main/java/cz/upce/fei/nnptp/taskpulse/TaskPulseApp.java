@@ -41,7 +41,20 @@ public class TaskPulseApp {
                 return;
             }
 
-            TaskPulseCli cli = new TaskPulseCli(projectService, taskService);
+            WorkspaceBackup workspaceBackup =
+                new WorkspaceBackup(
+                        projectRepository,
+                        taskRepository
+                );
+
+            TaskPulseCli cli =
+                new TaskPulseCli(
+                        projectService,
+                        taskService,
+                        workspaceBackup,
+                        System.out,
+                        System.err
+                );
 
             if (args.length > 0) {
                 cli.executeTokens(List.of(args));

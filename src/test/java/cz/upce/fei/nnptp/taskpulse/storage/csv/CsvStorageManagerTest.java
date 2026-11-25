@@ -84,7 +84,7 @@ class CsvStorageManagerTest {
         InMemoryProjectRepository originalRepo = new InMemoryProjectRepository();
         originalRepo.save(new Project(UUID.randomUUID(), "Original", "Original data"));
 
-        storage.save(originalRepo, taskRepo);
+        save(storage, originalRepo, taskRepo);
 
         Path projectsFile = tempDir.resolve("projects.csv");
         byte[] originalContent = Files.readAllBytes(projectsFile);
@@ -99,7 +99,7 @@ class CsvStorageManagerTest {
             }
         };
 
-        assertThatThrownBy(() -> storage.save(failingRepo, taskRepo))
+        assertThatThrownBy(() -> save(storage, failingRepo, taskRepo))
             .isInstanceOf(NullPointerException.class);
 
         assertThat(Files.readAllBytes(projectsFile))
@@ -207,7 +207,7 @@ class CsvStorageManagerTest {
                 "id,description,name\n" + UUID.randomUUID() + ",Some description,Name\n");
 
         CsvStorageManager storage = new CsvStorageManager(tempDir);
-        assertThatThrownBy(storage::load)
+        assertThatThrownBy(() -> load(storage))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Unsupported header in projects.csv")
                 .hasMessageContaining("expected 'id,name,description'")
@@ -220,7 +220,7 @@ class CsvStorageManagerTest {
         Files.writeString(tempDir.resolve(fileName), "foo,bar\n");
 
         CsvStorageManager storage = new CsvStorageManager(tempDir);
-        assertThatThrownBy(storage::load)
+        assertThatThrownBy(() -> load(storage))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Unsupported header in " + fileName);
     }
@@ -230,7 +230,7 @@ class CsvStorageManagerTest {
         Files.writeString(tempDir.resolve("worklogs.csv"), "taskId,timestamp,durationMinutes,author\n");
 
         CsvStorageManager storage = new CsvStorageManager(tempDir);
-        assertThatThrownBy(storage::load)
+        assertThatThrownBy(() -> load(storage))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Unsupported header in worklogs.csv");
     }
@@ -241,7 +241,7 @@ class CsvStorageManagerTest {
         Files.writeString(tempDir.resolve("projects.csv"),
                 " id , name , description \n" + id + ",Name,Description\n");
 
-        CsvStorageManager.LoadedWorkspace workspace = new CsvStorageManager(tempDir).load();
+        LoadedWorkspace workspace = load(new CsvStorageManager(tempDir));
 
         assertThat(workspace.projectRepository().findById(id)).isPresent();
     }
@@ -252,7 +252,7 @@ class CsvStorageManagerTest {
         Files.writeString(tempDir.resolve("projects.csv"),
                 "\uFEFFid,name,description\n" + id + ",Name,Description\n");
 
-        CsvStorageManager.LoadedWorkspace workspace = new CsvStorageManager(tempDir).load();
+        LoadedWorkspace workspace = load(new CsvStorageManager(tempDir));
 
         assertThat(workspace.projectRepository().findById(id)).isPresent();
     }
@@ -261,7 +261,7 @@ class CsvStorageManagerTest {
     void acceptEmptyCsvFileWithoutHeader() throws IOException {
         Files.writeString(tempDir.resolve("projects.csv"), "");
 
-        CsvStorageManager.LoadedWorkspace workspace = new CsvStorageManager(tempDir).load();
+        LoadedWorkspace workspace = load(new CsvStorageManager(tempDir));
 
         assertThat(workspace.projectRepository().findAll()).isEmpty();
     }
@@ -508,7 +508,11 @@ class CsvStorageManagerTest {
 
     private static LoadedWorkspace load(CsvStorageManager storage) {
         try (IWorkspaceUnitOfWork unitOfWork = storage.openUnitOfWork()) {
-            return new LoadedWorkspace(unitOfWork.projects(), unitOfWork.tasks());
+            InMemoryProjectRepository projects = new InMemoryProjectRepository();
+            InMemoryTaskRepository tasks = new InMemoryTaskRepository();
+            unitOfWork.projects().findAll().forEach(projects::save);
+            unitOfWork.tasks().findAll().forEach(tasks::save);
+            return new LoadedWorkspace(projects, tasks);
         }
     }
 

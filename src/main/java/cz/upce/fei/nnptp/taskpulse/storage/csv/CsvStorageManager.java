@@ -321,6 +321,38 @@ public class CsvStorageManager {
             throw new StorageException("Failed to load " + mapper.fileName() + ": " + e.getMessage(), e);
         }
     }
+    
+    private <T> void validateHeader(
+        CsvEntityMapper<T> mapper,
+        List<String> actualHeader
+    ) {
+        List<String> normalizedHeader =
+                new java.util.ArrayList<>(actualHeader);
+
+        for (int i = 0; i < normalizedHeader.size(); i++) {
+            String column = normalizedHeader.get(i).trim();
+
+            if (i == 0 && column.startsWith(UTF8_BOM)) {
+                column = column
+                        .substring(UTF8_BOM.length())
+                        .trim();
+            }
+
+            normalizedHeader.set(i, column);
+        }
+
+        if (!normalizedHeader.equals(mapper.columns())) {
+            throw new StorageException(
+                    "Unsupported header in "
+                            + mapper.fileName()
+                            + ": expected '"
+                            + String.join(",", mapper.columns())
+                            + "' but found '"
+                            + String.join(",", normalizedHeader)
+                            + "'"
+            );
+        }
+    }
 
     private <T> void writeAll(
             Path targetDirectory,
@@ -331,7 +363,7 @@ public class CsvStorageManager {
         try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
             writeLine(writer, mapper.columns());
             for (T value : values) {
-                writeLine(bufferedWriter, mapper.toFields(value));
+                writeLine(writer, mapper.toFields(value));
             }
         }
     }

@@ -36,7 +36,7 @@ class WorkspaceBackupTest {
         tasks.save(task);
         Path source = directory.resolve(archive ? "backup.zip" : "csv");
         if (archive) backup.exportArchive(source);
-        else new CsvStorageManager(source).save(projects, tasks);
+        else save(new CsvStorageManager(source), projects, tasks);
         tasks.deleteById(task.getId());
         projects.deleteById(project.getId());
         Project replaced = projects.save(new Project("Remove me", ""));
@@ -63,7 +63,7 @@ class WorkspaceBackupTest {
     void invalidBundleLeavesExistingWorkspaceIntact(String defect) throws Exception {
         Project original = projects.save(new Project("Keep me", ""));
         Path source = directory.resolve("invalid");
-        new CsvStorageManager(source).save(new InMemoryProjectRepository(), new InMemoryTaskRepository());
+        save(new CsvStorageManager(source), new InMemoryProjectRepository(), new InMemoryTaskRepository());
         switch (defect) {
             case "missing" -> Files.delete(source.resolve("worklogs.csv"));
             case "header" -> Files.writeString(source.resolve("projects.csv"), "wrong,header\n");
@@ -139,6 +139,14 @@ class WorkspaceBackupTest {
         assertThatThrownBy(() -> backup.importBundle(zip)).isInstanceOf(StorageException.class)
                 .hasMessageContaining("64 MiB");
         assertThat(projects.findAll()).containsExactly(original);
+    }
+
+    private static void save(CsvStorageManager storage, ProjectRepository projects, TaskRepository tasks) {
+        try (IWorkspaceUnitOfWork unitOfWork = storage.openUnitOfWork()) {
+            projects.findAll().forEach(unitOfWork.projects()::save);
+            tasks.findAll().forEach(unitOfWork.tasks()::save);
+            unitOfWork.commit();
+        }
     }
 
 }
