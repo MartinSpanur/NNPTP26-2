@@ -9,9 +9,9 @@ import cz.upce.fei.nnptp.taskpulse.storage.ProjectRepository;
 import cz.upce.fei.nnptp.taskpulse.storage.StorageException;
 import cz.upce.fei.nnptp.taskpulse.storage.TaskRepository;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -303,8 +303,11 @@ public class CsvStorageManager {
         if (!Files.exists(path)) {
             return;
         }
-
-        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            reader.mark(1);
+            if (reader.read() != UTF8_BOM.charAt(0)) {
+                reader.reset();
+            }
             List<List<String>> rows = CsvUtils.parse(reader);
             if (!rows.isEmpty()) {
                 validateHeader(mapper, rows.get(0));

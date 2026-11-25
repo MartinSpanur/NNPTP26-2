@@ -70,6 +70,11 @@ public final class CommandTokenizer {
             }
         }
 
+        if (inQuotes) {
+            throw new IllegalArgumentException("Unclosed " + (quoteChar == '"' ? "double" : "single")
+                    + " quote. Close the quote before running the command.");
+        }
+
         if (tokenStarted) {
             tokens.add(current.toString());
         }

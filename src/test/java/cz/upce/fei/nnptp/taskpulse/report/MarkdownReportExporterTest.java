@@ -134,6 +134,26 @@ class MarkdownReportExporterTest {
     }
 
     @Test
+    void escapesHtmlTagsInTaskTitles() {
+        Project project = new Project("Course");
+        Task task = new Task(project.getId(), "Fix <div> layout");
+
+        String report = exporter.export(project, List.of(task), asOfDate);
+
+        assertThat(report).contains("| " + task.getId() + " | Fix &lt;div&gt; layout |");
+    }
+
+    @Test
+    void preservesLiteralEntityReferencesInTaskTitles() {
+        Project project = new Project("Course");
+        Task task = new Task(project.getId(), "Document &lt; in HTML");
+
+        String report = exporter.export(project, List.of(task), asOfDate);
+
+        assertThat(report).contains("| " + task.getId() + " | Document &amp;lt; in HTML |");
+    }
+
+    @Test
     void exportDoesNotMutateProjectOrTasks() {
         UUID projectId = UUID.randomUUID();
         Project project = new Project(projectId, "Stable", "unchanged");

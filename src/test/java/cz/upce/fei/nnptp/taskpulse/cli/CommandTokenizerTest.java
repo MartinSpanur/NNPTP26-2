@@ -3,9 +3,30 @@ package cz.upce.fei.nnptp.taskpulse.cli;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CommandTokenizerTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "project add \"Course",
+            "project add 'Course",
+            "project add \"",
+            "project add '",
+            "project add \"Course\\\"",
+            "project add 'Course\\'",
+            "project add pre\"fix",
+            "project add \"Course\"'description"
+    })
+    void rejectsUnclosedQuotedArguments(String line) {
+        assertThatThrownBy(() -> CommandTokenizer.tokenize(line))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unclosed")
+                .hasMessageContaining("quote");
+    }
 
     @Test
     void preservesEmptyDoubleQuotedArgument() {

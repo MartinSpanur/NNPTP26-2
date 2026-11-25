@@ -119,14 +119,17 @@ public final class MarkdownReportExporter implements ReportExporter {
     }
 
     /**
-     * Escapes values used inside Markdown table cells so pipes and newlines
-     * cannot break table structure.
+     * Preserves literal HTML tags and entities in table cells and keeps pipes
+     * and newlines from breaking the table structure.
      */
     static String escapeCell(String value) {
         if (value == null || value.isEmpty()) {
             return "";
         }
         return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
                 .replace("\\", "\\\\")
                 .replace("|", "\\|")
                 .replace("\r\n", " ")

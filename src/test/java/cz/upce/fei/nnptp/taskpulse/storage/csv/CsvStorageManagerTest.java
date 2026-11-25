@@ -106,6 +106,20 @@ class CsvStorageManagerTest {
             .isEqualTo(originalContent);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"Co\"ur\"se", "\"Course\"oops"})
+    void rejectsMalformedQuotesWithoutChangingSourceFile(String name) throws IOException {
+        Path source = tempDir.resolve("projects.csv");
+        Files.writeString(source, "id,name,description\n" + UUID.randomUUID() + "," + name + ",Description\n");
+        byte[] originalContent = Files.readAllBytes(source);
+        CsvStorageManager storage = new CsvStorageManager(tempDir);
+
+        assertThatThrownBy(storage::load)
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Failed to load projects.csv", "Invalid CSV");
+        assertThat(Files.readAllBytes(source)).isEqualTo(originalContent);
+    }
+
     @Test
     void loadFromNonExistentDirectoryInitializesEmptyWorkspace() {
         Path nonExistent = tempDir.resolve("does_not_exist");
@@ -246,11 +260,12 @@ class CsvStorageManagerTest {
         assertThat(workspace.projectRepository().findById(id)).isPresent();
     }
 
-    @Test
-    void acceptHeaderStartingWithUtf8ByteOrderMark() throws IOException {
+    @ParameterizedTest
+    @ValueSource(strings = {"id", "\"id\""})
+    void acceptHeaderStartingWithUtf8ByteOrderMark(String firstColumn) throws IOException {
         UUID id = UUID.randomUUID();
         Files.writeString(tempDir.resolve("projects.csv"),
-                "\uFEFFid,name,description\n" + id + ",Name,Description\n");
+                "\uFEFF" + firstColumn + ",name,description\n" + id + ",Name,Description\n");
 
         LoadedWorkspace workspace = load(new CsvStorageManager(tempDir));
 

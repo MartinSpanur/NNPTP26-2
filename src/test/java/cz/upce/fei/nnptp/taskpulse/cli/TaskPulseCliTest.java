@@ -1,6 +1,7 @@
 package cz.upce.fei.nnptp.taskpulse.cli;
 
 import cz.upce.fei.nnptp.taskpulse.domain.Priority;
+import cz.upce.fei.nnptp.taskpulse.domain.Project;
 import cz.upce.fei.nnptp.taskpulse.domain.Task;
 import cz.upce.fei.nnptp.taskpulse.domain.TaskState;
 import cz.upce.fei.nnptp.taskpulse.service.ProjectService;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -239,6 +241,47 @@ class TaskPulseCliTest {
         outContent.reset();
         cli.executeLine("project list");
         assertThat(outContent.toString()).contains("Programming Course", "Semester project");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"Course", "'Course"})
+    void unclosedQuoteRejectsProjectCreation(String argument) {
+        boolean keepRunning = cli.executeLine("project add " + argument);
+
+        assertThat(keepRunning).isTrue();
+        assertThat(projectService.listProjects()).isEmpty();
+        assertThat(outContent.toString(StandardCharsets.UTF_8)).isEmpty();
+        assertThat(errContent.toString(StandardCharsets.UTF_8))
+                .contains("Invalid argument: Unclosed", "quote")
+                .doesNotContain("Exception in thread", "at cz.upce");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"Changed", "'Changed"})
+    void unclosedQuoteRejectsTaskUpdate(String argument) {
+        UUID projectId = projectService.createProject("Course", "").getId();
+        Task task = taskService.createTask(projectId, "Original", "Description", Priority.HIGH, 30, null);
+
+        cli.executeLine("task update " + task.getId() + " --estimate 60 --title " + argument);
+
+        assertThat(task.getTitle()).isEqualTo("Original");
+        assertThat(task.getEstimatedMinutes()).isEqualTo(30);
+        assertThat(outContent.toString(StandardCharsets.UTF_8)).isEmpty();
+        assertThat(errContent.toString(StandardCharsets.UTF_8))
+                .contains("Invalid argument: Unclosed", "quote");
+    }
+
+    @Test
+    void interactiveSessionContinuesAfterUnclosedQuote() {
+        cli.runInteractive(new Scanner("project add \"Broken\nproject add \"Valid project\"\nexit\n"));
+
+        assertThat(projectService.listProjects())
+                .extracting(Project::getName)
+                .containsExactly("Valid project");
+        assertThat(outContent.toString(StandardCharsets.UTF_8)).contains("Project created:", "Valid project")
+                .doesNotContain("Broken");
+        assertThat(errContent.toString(StandardCharsets.UTF_8))
+                .contains("Invalid argument: Unclosed", "quote");
     }
 
     @Test

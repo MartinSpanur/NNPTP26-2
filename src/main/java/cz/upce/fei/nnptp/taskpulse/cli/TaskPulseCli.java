@@ -68,7 +68,14 @@ public class TaskPulseCli {
             return true;
         }
 
-        return executeTokens(CommandTokenizer.tokenize(line));
+        List<String> tokens;
+        try {
+            tokens = CommandTokenizer.tokenize(line);
+        } catch (IllegalArgumentException e) {
+            errorHandler.handle(e);
+            return true;
+        }
+        return executeTokens(tokens);
     }
 
     public boolean executeTokens(List<String> tokens) {
